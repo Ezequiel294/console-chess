@@ -19,14 +19,14 @@ typedef struct {
 // Linked list to store the player's captures
 typedef struct {
   Piece_t piece;
-  struct Captures_node_t *next;
+  struct Captures_node_t *p_next;
 } Captures_node_t;
 
 // Linked list to store the moves made
 typedef struct {
   char prev_pos[2];
   char next_pos[2];
-  struct History_node_t *next;
+  struct History_node_t *p_next;
 } History_node_t;
 
 void init_board(Piece_t board[8][8]);
