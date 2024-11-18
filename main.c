@@ -15,6 +15,19 @@ typedef struct {
   char position[2];
 } Piece_t;
 
+// Linked list to store the player's captures
+typedef struct {
+  Piece_t piece;
+  struct Captures_node_t *next;
+} Captures_node_t;
+
+// Linked list to store the moves made
+typedef struct {
+  char prev_pos[2];
+  char next_pos[2];
+  struct History_node_t *next;
+} History_node_t;
+
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 
@@ -24,6 +37,7 @@ int main(void) {
 
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
+  wprintf(L"2 Player Mode\n");
   // TODO: Add instructions
 
   // Initialize the board
