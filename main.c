@@ -6,7 +6,6 @@ Console Chess Game
 */
 
 #include <locale.h>
-#include <stdio.h>
 #include <string.h>
 #include <wchar.h>
 
@@ -20,8 +19,14 @@ void init_board(Piece_t[8][8]);
 void print_board(Piece_t board[8][8]);
 
 int main(void) {
+  // Set to a different locale to display unicode characters
   setlocale(LC_ALL, "");
 
+  // Welcome message and instructions
+  wprintf(L"\nWelcome to Console Chess!\n");
+  // TODO: Add instructions
+
+  // Initialize the board
   Piece_t board[8][8];
   init_board(board);
   print_board(board);
@@ -30,7 +35,7 @@ int main(void) {
 }
 
 void print_board(Piece_t board[8][8]) {
-  wprintf(L"   a   b   c   d   e   f   g   h\n");
+  wprintf(L"\n   a   b   c   d   e   f   g   h\n");
   wprintf(L" +---+---+---+---+---+---+---+---+\n");
   for (int i = 0; i < 8; i++) {
     wprintf(L"%d|", 8 - i);
