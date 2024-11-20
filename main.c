@@ -50,13 +50,17 @@ int main(void)
   init_board(board);
   print_board(board);
 
-  // TODO: Make 2 linked lists to store the player's captures
-  // TODO: Make a linked list to store the moves made
+  // Initialize the linked lists
+  Captures_node_t *p_captures_white_head = NULL;
+  Captures_node_t *p_captures_black_head = NULL;
+  History_node_t *p_history_head = NULL;
 
+  // Start of the Main Menu
   wprintf(L"\n1. New Game\n");
   wprintf(L"2. Load Game\n");
   wprintf(L"Enter a number: ");
   int choice;
+  // Input validation
   while (wscanf(L"%d", &choice) != 1 || (choice != 1 && choice != 2))
   {
     wprintf(L"Invalid input. Please enter 1 or 2: ");
@@ -81,6 +85,21 @@ int main(void)
   }
 
   return 0;
+}
+
+void print_history(History_node_t *p_history_head)
+{
+  wprintf(L"\nMove History:\n");
+  wprintf(L"+-----------------+\n");
+  wprintf(L"|  From  |   To   |\n");
+  wprintf(L"+-----------------+\n");
+  History_node_t *p_current = p_history_head;
+  while (p_current != NULL)
+  {
+    wprintf(L"|  %s   |  %s   |\n", p_current->prev_pos, p_current->next_pos);
+    p_current = p_current->p_next;
+  }
+  wprintf(L"+-----------------+\n");
 }
 
 void print_board(Piece_t board[8][8])
