@@ -9,7 +9,8 @@ Console Chess Game
 #include <string.h>
 #include <wchar.h>
 
-typedef struct {
+typedef struct
+{
   wchar_t icon;
   char color;
   char position[2];
@@ -17,13 +18,15 @@ typedef struct {
 } Piece_t;
 
 // Linked list to store the player's captures
-typedef struct {
+typedef struct
+{
   Piece_t piece;
   struct Captures_node_t *p_next;
 } Captures_node_t;
 
 // Linked list to store the moves made
-typedef struct {
+typedef struct
+{
   char prev_pos[2];
   char next_pos[2];
   struct History_node_t *p_next;
@@ -32,7 +35,8 @@ typedef struct {
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 
-int main(void) {
+int main(void)
+{
   // Set to a different locale to display unicode characters
   setlocale(LC_ALL, "");
 
@@ -49,21 +53,52 @@ int main(void) {
   // TODO: Make 2 linked lists to store the player's captures
   // TODO: Make a linked list to store the moves made
 
+  wprintf(L"\n1. New Game\n");
+  wprintf(L"2. Load Game\n");
+  wprintf(L"Enter a number: ");
+  int choice;
+  while (wscanf(L"%d", &choice) != 1 || (choice != 1 && choice != 2))
+  {
+    wprintf(L"Invalid input. Please enter 1 or 2: ");
+    // Clear the input buffer
+    while (getwchar() != '\n')
+      ;
+  }
+
+  switch (choice)
+  {
+  case 1:
+    wprintf(L"\nStarting a new game...\n");
+    // TODO: Add code to start a new game
+    break;
+  case 2:
+    wprintf(L"\nLoading a saved game...\n");
+    // TODO: Add code to load a saved game
+    break;
+  default:
+    wprintf(L"Unexpected error.\n");
+    break;
+  }
+
   return 0;
 }
 
-void print_board(Piece_t board[8][8]) {
+void print_board(Piece_t board[8][8])
+{
   wprintf(L"\n   a   b   c   d   e   f   g   h               h   g   f   e   d "
           L"  c   b   a\n");
   wprintf(L" +---+---+---+---+---+---+---+---+           "
           L"+---+---+---+---+---+---+---+---+\n");
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 8; i++)
+  {
     wprintf(L"%d|", 8 - i);
-    for (int j = 0; j < 8; j++) {
+    for (int j = 0; j < 8; j++)
+    {
       wprintf(L" %lc |", board[i][j].icon);
     }
     wprintf(L" %d        %d|", 8 - i, i + 1);
-    for (int j = 7; j >= 0; j--) {
+    for (int j = 7; j >= 0; j--)
+    {
       wprintf(L" %lc |", board[7 - i][j].icon);
     }
     wprintf(L" %d\n", i + 1);
@@ -74,7 +109,8 @@ void print_board(Piece_t board[8][8]) {
           L"c   b   a\n");
 }
 
-void init_board(Piece_t board[8][8]) {
+void init_board(Piece_t board[8][8])
+{
   Piece_t temp_board[8][8] = {{{L'♖', 'w', "a1", "rook"},
                                {L'♘', 'w', "b1", "knight"},
                                {L'♗', 'w', "c1", "bishop"},
