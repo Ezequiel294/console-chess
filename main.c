@@ -44,6 +44,7 @@ void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice);
+int is_valid_move();
 void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2]);
 
 int main(void)
@@ -116,6 +117,10 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       wprintf(L"\nBlack's turn\n");
 
     counter++;
+int is_valid_move()
+{
+  return 0;
+}
 void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
 {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
