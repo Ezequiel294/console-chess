@@ -42,7 +42,7 @@ typedef struct History_node_s
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head);
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice);
 
 int main(void)
 {
@@ -93,26 +93,27 @@ int main(void)
     break;
   }
 
+  // Main game loop
+  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, choice);
+
   return 0;
 }
 
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head)
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice)
 {
   int counter = 1;
+
   // Game loop
   while (1)
   {
     print_board(board);
-    wprintf(L"\nMove %d\n", counter);
+    if (choice == 2)
+      print_history(p_history_head);
 
     if (counter % 2 != 0)
-    {
-      wprintf(L"White's turn\n");
-    }
+      wprintf(L"\nWhite's turn\n");
     else
-    {
-      wprintf(L"Black's turn\n");
-    }
+      wprintf(L"\nBlack's turn\n");
 
     counter++;
   }
