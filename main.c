@@ -86,6 +86,7 @@ int main(void)
     break;
   case 2:
     wprintf(L"\nLoading a saved game...\n");
+    print_history(p_history_head);
     // TODO: Add code to load a saved game
     break;
   default:
@@ -101,14 +102,11 @@ int main(void)
 
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice)
 {
-  int counter = 1;
-
   // Game loop
+  int counter = 1;
   while (1)
   {
     print_board(board);
-    if (choice == 2)
-      print_history(p_history_head);
 
     if (counter % 2 != 0)
       wprintf(L"\nWhite's turn\n");
