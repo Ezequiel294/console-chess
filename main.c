@@ -21,7 +21,7 @@ typedef struct
 {
   wchar_t icon;
   Color color;
-  char position[2];
+  char position[3];
   char type[10];
 } Piece_t;
 
@@ -35,17 +35,17 @@ typedef struct Captures_node_s
 // Linked list to store the moves made
 typedef struct History_node_s
 {
-  char prev_pos[2];
-  char next_pos[2];
+  char prev_pos[3];
+  char next_pos[3];
   struct History_node_s *p_next;
 } History_node_t;
 
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
-int is_valid_move();
-void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2]);
-void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2]);
+int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
+void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
 
 int main(void)
@@ -124,8 +124,8 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 
 void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, History_node_t *p_history_head)
 {
-    char prev_pos[2];
-    char next_pos[2];
+    char prev_pos[3];
+    char next_pos[3];
     
     wprintf(L"Enter the position of the piece you want to move: ");
     wscanf(L"%s", prev_pos);
@@ -147,14 +147,44 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, Histor
     }
 }
 
-int is_valid_move()
+int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
 {
-  return 0;
+  return 1;
 }
 
-void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2]) {}
+void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
+{
+    int prev_i, prev_j;
+    int next_i, next_j;
 
-void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
+    // Find the coordinates of the previous and next positions
+    for (int i = 0; i < 8; i++)
+    {
+        for (int j = 0; j < 8; j++)
+        {
+            if (board[i][j].position[0] == prev_pos[0] && board[i][j].position[1] == prev_pos[1])
+            {
+                prev_i = i;
+                prev_j = j;
+            }
+            if (board[i][j].position[0] == next_pos[0] && board[i][j].position[1] == next_pos[1])
+            {
+                next_i = i;
+                next_j = j;
+            }
+        }
+    }
+
+    // Copy the piece from the previous position to the next position
+    board[next_i][next_j] = board[prev_i][prev_j];
+    // Clear the previous position
+    board[prev_i][prev_j].icon = L' ';
+    board[prev_i][prev_j].color = NONE;
+    strcpy(board[prev_i][prev_j].position, prev_pos);
+    strcpy(board[prev_i][prev_j].type, "free");
+}
+
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3])
 {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
   if (p_new_node == NULL)
