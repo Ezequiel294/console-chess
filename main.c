@@ -46,6 +46,7 @@ void print_history(History_node_t *p_history_head);
 int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
 void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
+void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, History_node_t *p_history_head);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
 
 int main(void)
@@ -54,7 +55,7 @@ int main(void)
   setlocale(LC_ALL, "");
 
   int choice;
-  int moves = 0;
+  int moves = 1;
 
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
@@ -118,6 +119,8 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
     else
       wprintf(L"\nBlack's turn\n");
 
+    get_move(board, p_captures_white_head, p_history_head);
+
     moves++;
   }
 }
@@ -133,7 +136,7 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, Histor
     wscanf(L"%s", next_pos);
     
     // Check if the move is valid
-    if (is_valid_move())
+    if (is_valid_move(board, prev_pos, next_pos))
     {
         // Update the board
         update_board(board, prev_pos, next_pos);
