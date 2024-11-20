@@ -43,15 +43,18 @@ typedef struct History_node_s
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice);
 int is_valid_move();
 void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2]);
 void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2]);
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
 
 int main(void)
 {
   // Set to a different locale to display unicode characters
   setlocale(LC_ALL, "");
+
+  int choice;
+  int moves = 0;
 
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
@@ -72,7 +75,6 @@ int main(void)
   wprintf(L"\n1. New Game\n");
   wprintf(L"2. Load Game\n");
   wprintf(L"Enter a number: ");
-  int choice;
   // Input validation
   while (wscanf(L"%d", &choice) != 1 || (choice != 1 && choice != 2))
   {
@@ -99,30 +101,59 @@ int main(void)
   }
 
   // Main game loop
-  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, choice);
+  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, moves, choice);
 
   return 0;
 }
 
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice)
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice)
 {
   // Game loop
-  int counter = 1;
   while (1)
   {
     print_board(board);
 
-    if (counter % 2 != 0)
+    if (moves % 2 != 0)
       wprintf(L"\nWhite's turn\n");
     else
       wprintf(L"\nBlack's turn\n");
 
-    counter++;
+    moves++;
+  }
+}
+
+void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, History_node_t *p_history_head)
+{
+    char prev_pos[2];
+    char next_pos[2];
+    
+    wprintf(L"Enter the position of the piece you want to move: ");
+    wscanf(L"%s", prev_pos);
+    wprintf(L"Enter the position where you want to move the piece: ");
+    wscanf(L"%s", next_pos);
+    
+    // Check if the move is valid
+    if (is_valid_move())
+    {
+        // Update the board
+        update_board(board, prev_pos, next_pos);
+        // Update the history
+        update_history(&p_history_head, prev_pos, next_pos);
+    }
+    else
+    {
+        wprintf(L"Invalid move. Please try again.\n");
+        get_move(board, p_caputer_color_head, p_history_head);
+    }
+}
+
 int is_valid_move()
 {
   return 0;
 }
+
 void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2]) {}
+
 void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
 {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
