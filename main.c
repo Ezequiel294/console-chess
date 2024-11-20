@@ -6,6 +6,7 @@ Console Chess Game
 */
 
 #include <locale.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 
@@ -43,6 +44,7 @@ void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int choice);
+void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2]);
 
 int main(void)
 {
@@ -114,6 +116,31 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       wprintf(L"\nBlack's turn\n");
 
     counter++;
+void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
+{
+  History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
+  if (p_new_node == NULL)
+  {
+    wprintf(L"Memory allocation failed.\n");
+    exit(1);
+  }
+
+  strcpy(p_new_node->prev_pos, prev_pos);
+  strcpy(p_new_node->next_pos, next_pos);
+  p_new_node->p_next = NULL;
+
+  if (*pp_history_head == NULL)
+  {
+    *pp_history_head = p_new_node;
+  }
+  else
+  {
+    History_node_t *p_current = *pp_history_head;
+    while (p_current->p_next != NULL)
+    {
+      p_current = p_current->p_next;
+    }
+    p_current->p_next = p_new_node;
   }
 }
 
