@@ -18,18 +18,18 @@ typedef struct
 } Piece_t;
 
 // Linked list to store the player's captures
-typedef struct
+typedef struct Captures_node_s
 {
   Piece_t piece;
-  struct Captures_node_t *p_next;
+  struct Captures_node_s *p_next;
 } Captures_node_t;
 
 // Linked list to store the moves made
-typedef struct
+typedef struct History_node_s
 {
   char prev_pos[2];
   char next_pos[2];
-  struct History_node_t *p_next;
+  struct History_node_s *p_next;
 } History_node_t;
 
 void init_board(Piece_t board[8][8]);
