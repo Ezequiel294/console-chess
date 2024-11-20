@@ -34,6 +34,7 @@ typedef struct
 
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
+void print_history(History_node_t *p_history_head);
 
 int main(void)
 {
