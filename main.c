@@ -155,7 +155,7 @@ int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
   return 1;
 }
 
-void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
+void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
 {
     int prev_i, prev_j;
     int next_i, next_j;
@@ -179,15 +179,17 @@ void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
     }
 
     // Copy the piece from the previous position to the next position
-    board[next_i][next_j] = board[prev_i][prev_j];
+    board[next_i][next_j].icon = board[prev_i][prev_j].icon;
+    board[next_i][next_j].color = board[prev_i][prev_j].color;
+    strcpy(board[prev_i][prev_j].type, board[next_i][next_j].type);
+
     // Clear the previous position
     board[prev_i][prev_j].icon = L' ';
     board[prev_i][prev_j].color = NONE;
-    strcpy(board[prev_i][prev_j].position, prev_pos);
     strcpy(board[prev_i][prev_j].type, "free");
 }
 
-void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3])
+void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
 {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
   if (p_new_node == NULL)
