@@ -127,27 +127,27 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 
 void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, History_node_t *p_history_head)
 {
-    char prev_pos[3];
-    char next_pos[3];
-    
-    wprintf(L"Enter the position of the piece you want to move: ");
-    wscanf(L"%s", prev_pos);
-    wprintf(L"Enter the position where you want to move the piece: ");
-    wscanf(L"%s", next_pos);
-    
-    // Check if the move is valid
-    if (is_valid_move(board, prev_pos, next_pos))
-    {
-        // Update the board
-        update_board(board, prev_pos, next_pos);
-        // Update the history
-        update_history(&p_history_head, prev_pos, next_pos);
-    }
-    else
-    {
-        wprintf(L"Invalid move. Please try again.\n");
-        get_move(board, p_caputer_color_head, p_history_head);
-    }
+  char prev_pos[3];
+  char next_pos[3];
+
+  wprintf(L"Enter the position of the piece you want to move: ");
+  wscanf(L"%s", prev_pos);
+  wprintf(L"Enter the position where you want to move the piece: ");
+  wscanf(L"%s", next_pos);
+
+  // Check if the move is valid
+  if (is_valid_move(board, prev_pos, next_pos))
+  {
+    // Update the board
+    update_board(board, prev_pos, next_pos);
+    // Update the history
+    update_history(&p_history_head, prev_pos, next_pos);
+  }
+  else
+  {
+    wprintf(L"Invalid move. Please try again.\n");
+    get_move(board, p_caputer_color_head, p_history_head);
+  }
 }
 
 int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
@@ -157,36 +157,36 @@ int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
 
 void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
 {
-    int prev_i, prev_j;
-    int next_i, next_j;
+  int prev_i, prev_j;
+  int next_i, next_j;
 
-    // Find the coordinates of the previous and next positions
-    for (int i = 0; i < 8; i++)
+  // Find the coordinates of the previous and next positions
+  for (int i = 0; i < 8; i++)
+  {
+    for (int j = 0; j < 8; j++)
     {
-        for (int j = 0; j < 8; j++)
-        {
-            if (board[i][j].position[0] == prev_pos[0] && board[i][j].position[1] == prev_pos[1])
-            {
-                prev_i = i;
-                prev_j = j;
-            }
-            if (board[i][j].position[0] == next_pos[0] && board[i][j].position[1] == next_pos[1])
-            {
-                next_i = i;
-                next_j = j;
-            }
-        }
+      if (board[i][j].position[0] == prev_pos[0] && board[i][j].position[1] == prev_pos[1])
+      {
+        prev_i = i;
+        prev_j = j;
+      }
+      if (board[i][j].position[0] == next_pos[0] && board[i][j].position[1] == next_pos[1])
+      {
+        next_i = i;
+        next_j = j;
+      }
     }
+  }
 
-    // Copy the piece from the previous position to the next position
-    board[next_i][next_j].icon = board[prev_i][prev_j].icon;
-    board[next_i][next_j].color = board[prev_i][prev_j].color;
-    strcpy(board[prev_i][prev_j].type, board[next_i][next_j].type);
+  // Copy the piece from the previous position to the next position
+  board[next_i][next_j].icon = board[prev_i][prev_j].icon;
+  board[next_i][next_j].color = board[prev_i][prev_j].color;
+  strcpy(board[prev_i][prev_j].type, board[next_i][next_j].type);
 
-    // Clear the previous position
-    board[prev_i][prev_j].icon = L' ';
-    board[prev_i][prev_j].color = NONE;
-    strcpy(board[prev_i][prev_j].type, "free");
+  // Clear the previous position
+  board[prev_i][prev_j].icon = L' ';
+  board[prev_i][prev_j].color = NONE;
+  strcpy(board[prev_i][prev_j].type, "free");
 }
 
 void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
@@ -261,46 +261,22 @@ void print_board(Piece_t board[8][8])
 void init_board(Piece_t board[8][8])
 {
   Piece_t temp_board[8][8] = {
-      {{L'♖', WHITE, "a1", "rook"},
-       {L'♘', WHITE, "b1", "knight"},
-       {L'♗', WHITE, "c1", "bishop"},
-       {L'♕', WHITE, "d1", "queen"},
-       {L'♔', WHITE, "e1", "king"},
-       {L'♗', WHITE, "f1", "bishop"},
-       {L'♘', WHITE, "g1", "knight"},
-       {L'♖', WHITE, "h1", "rook"}},
-      {{L'♙', WHITE, "a2", "pawn"},
-       {L'♙', WHITE, "b2", "pawn"},
-       {L'♙', WHITE, "c2", "pawn"},
-       {L'♙', WHITE, "d2", "pawn"},
-       {L'♙', WHITE, "e2", "pawn"},
-       {L'♙', WHITE, "f2", "pawn"},
-       {L'♙', WHITE, "g2", "pawn"},
-       {L'♙', WHITE, "h2", "pawn"}},
-      {{L' ', NONE, "a3", "free"},
-       {L' ', NONE, "b3", "free"},
-       {L' ', NONE, "c3", "free"},
-       {L' ', NONE, "d3", "free"},
-       {L' ', NONE, "e3", "free"},
-       {L' ', NONE, "f3", "free"},
-       {L' ', NONE, "g3", "free"},
-       {L' ', NONE, "h3", "free"}},
-      {{L' ', NONE, "a4", "free"},
-       {L' ', NONE, "b4", "free"},
-       {L' ', NONE, "c4", "free"},
-       {L' ', NONE, "d4", "free"},
-       {L' ', NONE, "e4", "free"},
-       {L' ', NONE, "f4", "free"},
-       {L' ', NONE, "g4", "free"},
-       {L' ', NONE, "h4", "free"}},
-      {{L' ', NONE, "a5", "free"},
-       {L' ', NONE, "b5", "free"},
-       {L' ', NONE, "c5", "free"},
-       {L' ', NONE, "d5", "free"},
-       {L' ', NONE, "e5", "free"},
-       {L' ', NONE, "f5", "free"},
-       {L' ', NONE, "g5", "free"},
-       {L' ', NONE, "h5", "free"}},
+      {{L'♖', BLACK, "a8", "rook"},
+       {L'♘', BLACK, "b8", "knight"},
+       {L'♗', BLACK, "c8", "bishop"},
+       {L'♕', BLACK, "d8", "queen"},
+       {L'♔', BLACK, "e8", "king"},
+       {L'♗', BLACK, "f8", "bishop"},
+       {L'♘', BLACK, "g8", "knight"},
+       {L'♖', BLACK, "h8", "rook"}},
+      {{L'♙', BLACK, "a7", "pawn"},
+       {L'♙', BLACK, "b7", "pawn"},
+       {L'♙', BLACK, "c7", "pawn"},
+       {L'♙', BLACK, "d7", "pawn"},
+       {L'♙', BLACK, "e7", "pawn"},
+       {L'♙', BLACK, "f7", "pawn"},
+       {L'♙', BLACK, "g7", "pawn"},
+       {L'♙', BLACK, "h7", "pawn"}},
       {{L' ', NONE, "a6", "free"},
        {L' ', NONE, "b6", "free"},
        {L' ', NONE, "c6", "free"},
@@ -309,22 +285,46 @@ void init_board(Piece_t board[8][8])
        {L' ', NONE, "f6", "free"},
        {L' ', NONE, "g6", "free"},
        {L' ', NONE, "h6", "free"}},
-      {{L'♟', BLACK, "a7", "pawn"},
-       {L'♟', BLACK, "b7", "pawn"},
-       {L'♟', BLACK, "c7", "pawn"},
-       {L'♟', BLACK, "d7", "pawn"},
-       {L'♟', BLACK, "e7", "pawn"},
-       {L'♟', BLACK, "f7", "pawn"},
-       {L'♟', BLACK, "g7", "pawn"},
-       {L'♟', BLACK, "h7", "pawn"}},
-      {{L'♜', BLACK, "a8", "rook"},
-       {L'♞', BLACK, "b8", "knight"},
-       {L'♝', BLACK, "c8", "bishop"},
-       {L'♛', BLACK, "d8", "queen"},
-       {L'♚', BLACK, "e8", "king"},
-       {L'♝', BLACK, "f8", "bishop"},
-       {L'♞', BLACK, "g8", "knight"},
-       {L'♜', BLACK, "h8", "rook"}}};
+      {{L' ', NONE, "a5", "free"},
+       {L' ', NONE, "b5", "free"},
+       {L' ', NONE, "c5", "free"},
+       {L' ', NONE, "d5", "free"},
+       {L' ', NONE, "e5", "free"},
+       {L' ', NONE, "f5", "free"},
+       {L' ', NONE, "g5", "free"},
+       {L' ', NONE, "h5", "free"}},
+      {{L' ', NONE, "a4", "free"},
+       {L' ', NONE, "b4", "free"},
+       {L' ', NONE, "c4", "free"},
+       {L' ', NONE, "d4", "free"},
+       {L' ', NONE, "e4", "free"},
+       {L' ', NONE, "f4", "free"},
+       {L' ', NONE, "g4", "free"},
+       {L' ', NONE, "h4", "free"}},
+      {{L' ', NONE, "a3", "free"},
+       {L' ', NONE, "b3", "free"},
+       {L' ', NONE, "c3", "free"},
+       {L' ', NONE, "d3", "free"},
+       {L' ', NONE, "e3", "free"},
+       {L' ', NONE, "f3", "free"},
+       {L' ', NONE, "g3", "free"},
+       {L' ', NONE, "h3", "free"}},
+      {{L'♟', WHITE, "a2", "pawn"},
+       {L'♟', WHITE, "b2", "pawn"},
+       {L'♟', WHITE, "c2", "pawn"},
+       {L'♟', WHITE, "d2", "pawn"},
+       {L'♟', WHITE, "e2", "pawn"},
+       {L'♟', WHITE, "f2", "pawn"},
+       {L'♟', WHITE, "g2", "pawn"},
+       {L'♟', WHITE, "h2", "pawn"}},
+      {{L'♜', WHITE, "a1", "rook"},
+       {L'♞', WHITE, "b1", "knight"},
+       {L'♝', WHITE, "c1", "bishop"},
+       {L'♛', WHITE, "d1", "queen"},
+       {L'♚', WHITE, "e1", "king"},
+       {L'♝', WHITE, "f1", "bishop"},
+       {L'♞', WHITE, "g1", "knight"},
+       {L'♜', WHITE, "h1", "rook"}}};
 
   memcpy(board, temp_board, sizeof(temp_board));
 }
