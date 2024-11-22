@@ -56,11 +56,11 @@ void init_board(Piece_t board[8][8]);
 void print_board_white(Piece_t board[8][8]);
 void print_board_black(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
-int is_capture(Piece_t board[8][8], char next_pos[3]);
+int is_capture(Piece_t board[8][8], int next_i, int next_j);
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
-int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
-void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
+void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
+int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
 void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, History_node_t *p_history_head);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
@@ -163,25 +163,28 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, Histor
 {
   char prev_pos[3];
   char next_pos[3];
+  int prev_i, prev_j, next_i, next_j;
 
   wprintf(L"Enter the position of the piece you want to move: ");
   wscanf(L"%s", prev_pos);
   wprintf(L"Enter the position where you want to move the piece: ");
   wscanf(L"%s", next_pos);
 
+  // Get the coordinates of the previous and next positions
+  find_piece_coordinates(board, prev_pos, &prev_i, &prev_j);
+  find_piece_coordinates(board, next_pos, &next_i, &next_j);
+
   // Check if the move is valid
-  if (is_valid_move(board, prev_pos, next_pos))
+  if (is_valid_move(board, prev_i, prev_j, next_i, next_j))
   {
     // Check if the move captures a piece
-    if (is_capture(board, next_pos))
+    if (is_capture(board, next_i, next_j))
     {
-      int i, j;
-      find_piece_coordinates(board, next_pos, &i, &j);
       // Update the captures
-      update_captures(&p_capture_color_head, board[i][j]);
+      update_captures(&p_capture_color_head, board[next_i][next_j]);
     }
     // Update the board
-    update_board(board, prev_pos, next_pos);
+    update_board(board, prev_i, prev_j, next_i, next_j);
     // Update the history
     update_history(&p_history_head, prev_pos, next_pos);
   }
@@ -192,14 +195,8 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, Histor
   }
 }
 
-int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
+int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j)
 {
-  int prev_i, prev_j, next_i, next_j;
-
-  // Get the coordinates of the previous and next positions
-  find_piece_coordinates(board, prev_pos, &prev_i, &prev_j);
-  find_piece_coordinates(board, next_pos, &next_i, &next_j);
-
   // Get the piece type being moved
   int piece_type = board[prev_i][prev_j].type;
 
@@ -269,11 +266,9 @@ int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
   }
 }
 
-int is_capture(Piece_t board[8][8], char next_pos[3])
+int is_capture(Piece_t board[8][8], int next_i, int next_j)
 {
-  int i, j;
-  find_piece_coordinates(board, next_pos, &i, &j);
-  if (board[i][j].type != FREE)
+  if (board[next_i][next_j].type != FREE)
   {
     return 1;
   }
@@ -307,15 +302,8 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
   }
 }
 
-void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
+void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j)
 {
-  int prev_i, prev_j;
-  int next_i, next_j;
-
-  // Find the coordinates of the previous and next positions
-  find_piece_coordinates(board, prev_pos, &prev_i, &prev_j);
-  find_piece_coordinates(board, next_pos, &next_i, &next_j);
-
   // Copy the piece from the previous position to the next position
   board[next_i][next_j].icon = board[prev_i][prev_j].icon;
   board[next_i][next_j].color = board[prev_i][prev_j].color;
