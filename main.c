@@ -56,8 +56,9 @@ void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
 int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
 void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
+int find_piece_coordinates(Piece_t board[8][8], char pos[2], int *i, int *j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
-void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, History_node_t *p_history_head);
+void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, History_node_t *p_history_head);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
 
 int main(void)
@@ -136,7 +137,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
   }
 }
 
-void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, History_node_t *p_history_head)
+void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, History_node_t *p_history_head)
 {
   char prev_pos[3];
   char next_pos[3];
@@ -157,7 +158,7 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_caputer_color_head, Histor
   else
   {
     wprintf(L"Invalid move. Please try again.\n");
-    get_move(board, p_caputer_color_head, p_history_head);
+    get_move(board, p_capture_color_head, p_history_head);
   }
 }
 
@@ -226,6 +227,23 @@ void update_history(History_node_t **pp_history_head, char prev_pos[2], char nex
     }
     p_current->p_next = p_new_node;
   }
+}
+
+int find_piece_coordinates(Piece_t board[8][8], char pos[2], int *i, int *j)
+{
+  for (int x = 0; x < 8; x++)
+  {
+    for (int y = 0; y < 8; y++)
+    {
+      if (board[x][y].position[0] == pos[0] && board[x][y].position[1] == pos[1])
+      {
+        *i = x;
+        *j = y;
+        return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 void print_history(History_node_t *p_history_head)
