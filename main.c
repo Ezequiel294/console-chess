@@ -54,6 +54,8 @@ typedef struct History_node_s
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
+int is_capture(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
+void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
 int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
 void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
 int find_piece_coordinates(Piece_t board[8][8], char pos[2], int *i, int *j);
@@ -150,6 +152,12 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, Histor
   // Check if the move is valid
   if (is_valid_move(board, prev_pos, next_pos))
   {
+    // Check if the move captures a piece
+    if (is_capture(board, prev_pos, next_pos))
+    {
+      // Update the captures
+      update_captures(&p_capture_color_head, board[prev_pos[0] - 'a'][prev_pos[1] - '1']);
+    }
     // Update the board
     update_board(board, prev_pos, next_pos);
     // Update the history
@@ -172,23 +180,41 @@ void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
   int prev_i, prev_j;
   int next_i, next_j;
 
-  // Find the coordinates of the previous and next positions
-  for (int i = 0; i < 8; i++)
+void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
+{
+  Captures_node_t *p_new_node = (Captures_node_t *)malloc(sizeof(Captures_node_t));
+  if (p_new_node == NULL)
   {
-    for (int j = 0; j < 8; j++)
-    {
-      if (board[i][j].position[0] == prev_pos[0] && board[i][j].position[1] == prev_pos[1])
-      {
-        prev_i = i;
-        prev_j = j;
-      }
-      if (board[i][j].position[0] == next_pos[0] && board[i][j].position[1] == next_pos[1])
-      {
-        next_i = i;
-        next_j = j;
-      }
-    }
+    wprintf(L"Memory allocation failed.\n");
+    exit(1);
   }
+
+  p_new_node->piece = piece;
+  p_new_node->p_next = NULL;
+
+  if (*pp_captures_head == NULL)
+  {
+    *pp_captures_head = p_new_node;
+  }
+  else
+  {
+    Captures_node_t *p_current = *pp_captures_head;
+    while (p_current->p_next != NULL)
+    {
+      p_current = p_current->p_next;
+    }
+    p_current->p_next = p_new_node;
+  }
+}
+
+void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
+{
+  int prev_i, prev_j;
+  int next_i, next_j;
+
+  // Find the coordinates of the previous and next positions
+  find_piece_coordinates(board, prev_pos, &prev_i, &prev_j);
+  find_piece_coordinates(board, next_pos, &next_i, &next_j);
 
   // Copy the piece from the previous position to the next position
   board[next_i][next_j].icon = board[prev_i][prev_j].icon;
