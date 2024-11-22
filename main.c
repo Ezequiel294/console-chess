@@ -54,11 +54,11 @@ typedef struct History_node_s
 void init_board(Piece_t board[8][8]);
 void print_board(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
-int is_capture(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
+int is_capture(Piece_t board[8][8], char next_pos[3]);
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
 int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
 void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3]);
-int find_piece_coordinates(Piece_t board[8][8], char pos[2], int *i, int *j);
+int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
 void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, History_node_t *p_history_head);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
@@ -153,7 +153,7 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, Histor
   if (is_valid_move(board, prev_pos, next_pos))
   {
     // Check if the move captures a piece
-    if (is_capture(board, prev_pos, next_pos))
+    if (is_capture(board, next_pos))
     {
       // Update the captures
       update_captures(&p_capture_color_head, board[prev_pos[0] - 'a'][prev_pos[1] - '1']);
@@ -175,10 +175,16 @@ int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
   return 1;
 }
 
-void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
+int is_capture(Piece_t board[8][8], char next_pos[3])
 {
-  int prev_i, prev_j;
-  int next_i, next_j;
+  int i, j;
+  find_piece_coordinates(board, next_pos, &i, &j);
+  if (board[i][j].type != FREE)
+  {
+    return 1;
+  }
+  return 0;
+}
 
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
 {
@@ -207,7 +213,7 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
   }
 }
 
-void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
+void update_board(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
 {
   int prev_i, prev_j;
   int next_i, next_j;
@@ -227,7 +233,7 @@ void update_board(Piece_t board[8][8], char prev_pos[2], char next_pos[2])
   board[prev_i][prev_j].type = FREE;
 }
 
-void update_history(History_node_t **pp_history_head, char prev_pos[2], char next_pos[2])
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3])
 {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
   if (p_new_node == NULL)
@@ -255,7 +261,7 @@ void update_history(History_node_t **pp_history_head, char prev_pos[2], char nex
   }
 }
 
-int find_piece_coordinates(Piece_t board[8][8], char pos[2], int *i, int *j)
+int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j)
 {
   for (int x = 0; x < 8; x++)
   {
