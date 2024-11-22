@@ -9,6 +9,7 @@ Console Chess Game
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <unistd.h>
 
 typedef enum
 {
@@ -138,17 +139,22 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_board_white(board);
       wprintf(L"\nWhite's turn\n");
       get_move(board, p_captures_white_head, p_history_head);
+      wprintf(L"\033[H\033[J");
+      print_board_white(board);
     }
     else
     {
       print_board_black(board);
       wprintf(L"\nBlack's turn\n");
       get_move(board, p_captures_black_head, p_history_head);
+      wprintf(L"\033[H\033[J");
+      print_board_black(board);
     }
 
     moves++;
 
-    // Clear the screen after each move
+    // Show the move for 3 seconds before clearing the screen
+    sleep(1.5);
     wprintf(L"\033[H\033[J");
   }
 }
