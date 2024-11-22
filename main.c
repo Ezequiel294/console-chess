@@ -194,7 +194,79 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, Histor
 
 int is_valid_move(Piece_t board[8][8], char prev_pos[3], char next_pos[3])
 {
-  return 1;
+  int prev_i, prev_j, next_i, next_j;
+
+  // Get the coordinates of the previous and next positions
+  find_piece_coordinates(board, prev_pos, &prev_i, &prev_j);
+  find_piece_coordinates(board, next_pos, &next_i, &next_j);
+
+  // Get the piece type being moved
+  int piece_type = board[prev_i][prev_j].type;
+
+  switch (piece_type)
+  {
+  case PAWN:
+    switch (board[prev_i][prev_j].color)
+    {
+    case WHITE:
+      // Moving one square forward
+      if (next_i == prev_i - 1 && next_j == prev_j && board[next_i][next_j].type == FREE)
+        return 1;
+      // Capturing diagonally
+      if (next_i == prev_i - 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == BLACK)
+        return 1;
+      break;
+    case BLACK:
+      // Moving one square forward
+      if (next_i == prev_i + 1 && next_j == prev_j && board[next_i][next_j].type == FREE)
+        return 1;
+      // Capturing diagonally
+      if (next_i == prev_i + 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == WHITE)
+        return 1;
+      break;
+    }
+    return 0;
+
+  case ROOK:
+    // Moving vertically
+    if (next_j == prev_j)
+    {
+      int step = (next_i > prev_i) ? 1 : -1;
+      for (int i = prev_i + step; i != next_i; i += step)
+      {
+        if (board[i][prev_j].type != FREE)
+          return 0;
+      }
+      return 1;
+    }
+    // Moving horizontally
+    if (next_i == prev_i)
+    {
+      int step = (next_j > prev_j) ? 1 : -1;
+      for (int j = prev_j + step; j != next_j; j += step)
+      {
+        if (board[prev_i][j].type != FREE)
+          return 0;
+      }
+      return 1;
+    }
+    return 0;
+
+  case BISHOP:
+    break;
+
+  case QUEEN:
+    break;
+
+  case KING:
+    break;
+
+  case KNIGHT:
+    break;
+
+  default:
+    return 0;
+  }
 }
 
 int is_capture(Piece_t board[8][8], char next_pos[3])
