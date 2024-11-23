@@ -56,14 +56,14 @@ void init_board(Piece_t board[8][8]);
 void print_board_white(Piece_t board[8][8]);
 void print_board_black(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
-int is_capture(Piece_t board[8][8], int next_i, int next_j);
+void print_captures(Captures_node_t *p_captures_head);
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
-void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
+void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
-void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, History_node_t *p_history_head);
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice);
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head);
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves);
 
 int main(void)
 {
@@ -72,24 +72,23 @@ int main(void)
 
   int choice;
   int moves = 1;
+  // Initialize the linked lists
+  Captures_node_t *p_captures_white_head = NULL;
+  Captures_node_t *p_captures_black_head = NULL;
+  History_node_t *p_history_head = NULL;
 
   // Clear the screen
   wprintf(L"\033[H\033[J");
 
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
-  wprintf(L"2 Player Mode\n");
+  wprintf(L"2 Player Mode\n\n");
   // TODO: Add instructions
 
   // Initialize the board
   Piece_t board[8][8];
   init_board(board);
   print_board_white(board);
-
-  // Initialize the linked lists
-  Captures_node_t *p_captures_white_head = NULL;
-  Captures_node_t *p_captures_black_head = NULL;
-  History_node_t *p_history_head = NULL;
 
   // Start of the Main Menu
   wprintf(L"\n1. New Game\n");
@@ -104,54 +103,49 @@ int main(void)
       ;
   }
 
-  switch (choice)
+  if (choice == 2)
   {
-  case 1:
-    wprintf(L"\nStarting a new game...\n");
-    // TODO: Add code to start a new game
-    break;
-  case 2:
-    wprintf(L"\nLoading a saved game...\n");
-    print_history(p_history_head);
-    // TODO: Add code to load a saved game
-    break;
-  default:
-    wprintf(L"Unexpected error.\n");
-    break;
+    // TODO: Load the game from binary file
   }
 
+  // Clear the screen after main menu
+  wprintf(L"\033[H\033[J");
+
   // Main game loop
-  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, moves, choice);
+  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves);
 
   return 0;
 }
 
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, int choice)
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
 {
-  // Clear the screen after main menu
-  wprintf(L"\033[H\033[J");
-
-  // Game loop
   while (1)
   {
-    if (moves % 2 != 0)
+
+    if ((*moves) % 2 != 0)
     {
       print_board_white(board);
+      wprintf(L"\n");
+      print_captures(p_captures_white_head);
+      print_captures(p_captures_black_head);
       wprintf(L"\nWhite's turn\n");
-      get_move(board, p_captures_white_head, p_history_head);
+      get_move(board, &p_captures_white_head, &p_history_head);
       wprintf(L"\033[H\033[J");
       print_board_white(board);
     }
     else
     {
       print_board_black(board);
+      wprintf(L"\n");
+      print_captures(p_captures_white_head);
+      print_captures(p_captures_black_head);
       wprintf(L"\nBlack's turn\n");
-      get_move(board, p_captures_black_head, p_history_head);
+      get_move(board, &p_captures_black_head, &p_history_head);
       wprintf(L"\033[H\033[J");
       print_board_black(board);
     }
 
-    moves++;
+    (*moves)++;
 
     // Show the move for 3 seconds before clearing the screen
     sleep(1.5);
@@ -159,7 +153,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
   }
 }
 
-void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, History_node_t *p_history_head)
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head)
 {
   char prev_pos[3];
   char next_pos[3];
@@ -178,20 +172,20 @@ void get_move(Piece_t board[8][8], Captures_node_t *p_capture_color_head, Histor
   if (is_valid_move(board, prev_i, prev_j, next_i, next_j))
   {
     // Check if the move captures a piece
-    if (is_capture(board, next_i, next_j))
+    if (board[next_i][next_j].type != FREE)
     {
       // Update the captures
-      update_captures(&p_capture_color_head, board[next_i][next_j]);
+      update_captures(pp_capture_color_head, board[next_i][next_j]);
     }
     // Update the board
     update_board(board, prev_i, prev_j, next_i, next_j);
     // Update the history
-    update_history(&p_history_head, prev_pos, next_pos);
+    update_history(pp_history_head, prev_pos, next_pos);
   }
   else
   {
     wprintf(L"Invalid move. Please try again.\n");
-    get_move(board, p_capture_color_head, p_history_head);
+    get_move(board, pp_capture_color_head, pp_history_head);
   }
 }
 
@@ -264,15 +258,6 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
   default:
     return 0;
   }
-}
-
-int is_capture(Piece_t board[8][8], int next_i, int next_j)
-{
-  if (board[next_i][next_j].type != FREE)
-  {
-    return 1;
-  }
-  return 0;
 }
 
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
@@ -375,9 +360,23 @@ void print_history(History_node_t *p_history_head)
   wprintf(L"+-----------------+\n");
 }
 
+void print_captures(Captures_node_t *p_captures_head)
+{
+  if (p_captures_head != NULL)
+  {
+    Captures_node_t *p_current = p_captures_head;
+    while (p_current != NULL)
+    {
+      wprintf(L"%lc ", p_current->piece.icon);
+      p_current = p_current->p_next;
+    }
+    wprintf(L"\n");
+  }
+}
+
 void print_board_white(Piece_t board[8][8])
 {
-  wprintf(L"\n   a   b   c   d   e   f   g   h\n");
+  wprintf(L"   a   b   c   d   e   f   g   h\n");
   wprintf(L" +---+---+---+---+---+---+---+---+\n");
   for (int i = 0; i < 8; i++)
   {
@@ -394,7 +393,7 @@ void print_board_white(Piece_t board[8][8])
 
 void print_board_black(Piece_t board[8][8])
 {
-  wprintf(L"\n   h   g   f   e   d   c   b   a\n");
+  wprintf(L"   h   g   f   e   d   c   b   a\n");
   wprintf(L" +---+---+---+---+---+---+---+---+\n");
   for (int i = 7; i >= 0; i--)
   {
