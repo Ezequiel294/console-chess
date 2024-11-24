@@ -203,6 +203,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       // Moving one square forward
       if (next_i == prev_i - 1 && next_j == prev_j && board[next_i][next_j].type == FREE)
         return 1;
+      // Moving two squares forward on the first move
+      if (prev_i == 6 && next_i == prev_i - 2 && next_j == prev_j && board[next_i][next_j].type == FREE && board[prev_i - 1][next_j].type == FREE)
+        return 1;
       // Capturing diagonally
       if (next_i == prev_i - 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == BLACK)
         return 1;
@@ -210,6 +213,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
     case BLACK:
       // Moving one square forward
       if (next_i == prev_i + 1 && next_j == prev_j && board[next_i][next_j].type == FREE)
+        return 1;
+      // Moving two squares forward on the first move
+      if (prev_i == 1 && next_i == prev_i + 2 && next_j == prev_j && board[next_i][next_j].type == FREE && board[prev_i + 1][next_j].type == FREE)
         return 1;
       // Capturing diagonally
       if (next_i == prev_i + 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == WHITE)
