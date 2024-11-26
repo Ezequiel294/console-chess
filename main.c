@@ -10,6 +10,7 @@ Console Chess Game
 #include <string.h>
 #include <wchar.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #define DEBUG
 
@@ -64,8 +65,10 @@ int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
 void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
-void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king);
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king, int *moves);
+void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves);
+void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves);
 
 int main(void)
 {
@@ -105,18 +108,155 @@ int main(void)
       ;
   }
 
-  if (choice == 2)
-  {
-    // TODO: Load the game from binary file
-  }
-
   // Clear the screen after main menu
   wprintf(L"\033[H\033[J");
+
+  if (choice == 2)
+    load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves);
 
   // Main game loop
   game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves);
 
   return 0;
+}
+
+void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
+{
+  FILE *file = fopen("game_save.bin", "rb");
+  if (file == NULL)
+  {
+    wprintf(L"Error opening file for loading.\n");
+    return;
+  }
+
+  // Read the board array
+  fread(board, sizeof(Piece_t), 8 * 8, file);
+
+  // Read the white captures linked list
+  Captures_node_t *current = NULL;
+  Captures_node_t *prev = NULL;
+  while (1)
+  {
+    current = (Captures_node_t *)malloc(sizeof(Captures_node_t));
+    fread(current, sizeof(Captures_node_t), 1, file);
+    if (current->p_next == NULL)
+    {
+      free(current);
+      break;
+    }
+    if (*p_captures_white_head == NULL)
+    {
+      *p_captures_white_head = current;
+    }
+    else
+    {
+      prev->p_next = current;
+    }
+    prev = current;
+  }
+
+  // Read the black captures linked list
+  current = NULL;
+  prev = NULL;
+  while (1)
+  {
+    current = (Captures_node_t *)malloc(sizeof(Captures_node_t));
+    fread(current, sizeof(Captures_node_t), 1, file);
+    if (current->p_next == NULL)
+    {
+      free(current);
+      break;
+    }
+    if (*p_captures_black_head == NULL)
+    {
+      *p_captures_black_head = current;
+    }
+    else
+    {
+      prev->p_next = current;
+    }
+    prev = current;
+  }
+
+  // Read the history linked list
+  History_node_t *current_history = NULL;
+  History_node_t *prev_history = NULL;
+  while (1)
+  {
+    current_history = (History_node_t *)malloc(sizeof(History_node_t));
+    fread(current_history, sizeof(History_node_t), 1, file);
+    if (current_history->p_next == NULL)
+    {
+      free(current_history);
+      break;
+    }
+    if (*p_history_head == NULL)
+    {
+      *p_history_head = current_history;
+    }
+    else
+    {
+      prev_history->p_next = current_history;
+    }
+    prev_history = current_history;
+  }
+
+  // Read the number of moves
+  fread(moves, sizeof(int), 1, file);
+
+  fclose(file);
+  wprintf(L"Game loaded successfully.\n");
+}
+
+void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
+{
+  FILE *file = fopen("game_save.bin", "wb");
+  if (file == NULL)
+  {
+    wprintf(L"Error opening file for saving.\n");
+    return;
+  }
+
+  // Write the board array
+  fwrite(board, sizeof(Piece_t), 8 * 8, file);
+
+  // Write the white captures linked list
+  Captures_node_t *current = p_captures_white_head;
+  while (current != NULL)
+  {
+    fwrite(current, sizeof(Captures_node_t), 1, file);
+    current = current->p_next;
+  }
+  // Write a NULL pointer to indicate the end of the list
+  Captures_node_t *null_node = NULL;
+  fwrite(&null_node, sizeof(Captures_node_t *), 1, file);
+
+  // Write the black captures linked list
+  current = p_captures_black_head;
+  while (current != NULL)
+  {
+    fwrite(current, sizeof(Captures_node_t), 1, file);
+    current = current->p_next;
+  }
+  // Write a NULL pointer to indicate the end of the list
+  fwrite(&null_node, sizeof(Captures_node_t *), 1, file);
+
+  // Write the history linked list
+  History_node_t *current_history = p_history_head;
+  while (current_history != NULL)
+  {
+    fwrite(current_history, sizeof(History_node_t), 1, file);
+    current_history = current_history->p_next;
+  }
+  // Write a NULL pointer to indicate the end of the list
+  History_node_t *null_history_node = NULL;
+  fwrite(&null_history_node, sizeof(History_node_t *), 1, file);
+
+  // Write the number of moves
+  fwrite(&moves, sizeof(int), 1, file);
+
+  fclose(file);
+  wprintf(L"Game saved successfully.\n");
 }
 
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
@@ -133,7 +273,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_white_head);
       print_captures(p_captures_black_head);
       wprintf(L"\nWhite's turn\n");
-      get_move(board, &p_captures_white_head, &p_history_head, &captured_king);
+      get_move(board, &p_captures_white_head, &p_history_head, &captured_king, moves);
       wprintf(L"\033[H\033[J");
       print_board_white(board);
     }
@@ -144,7 +284,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_white_head);
       print_captures(p_captures_black_head);
       wprintf(L"\nBlack's turn\n");
-      get_move(board, &p_captures_black_head, &p_history_head, &captured_king);
+      get_move(board, &p_captures_black_head, &p_history_head, &captured_king, moves);
       wprintf(L"\033[H\033[J");
       print_board_black(board);
     }
@@ -166,19 +306,48 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
     wprintf(L"Black wins!\n");
 }
 
-void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king)
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king, int *moves)
 {
   char prev_pos[3];
   char next_pos[3];
   int prev_i, prev_j, next_i, next_j;
 
-  wprintf(L"Enter the position of the piece you want to move: ");
-  wscanf(L"%s", prev_pos);
-  wprintf(L"Enter the position where you want to move the piece: ");
-  wscanf(L"%s", next_pos);
+  // Get the peice to move
+  while (1)
+  {
+    wprintf(L"Enter the position of the piece you want to move (e.g., e2): ");
+    wscanf(L"%2s", prev_pos);
+    if (strlen(prev_pos) == 2 && prev_pos[0] >= 'a' && prev_pos[0] <= 'h' && prev_pos[1] >= '1' && prev_pos[1] <= '8')
+    {
+      prev_pos[2] = '\0';
+      // Check if the selected piece is of the correct color
+      if (find_piece_coordinates(board, prev_pos, &prev_i, &prev_j) && board[prev_i][prev_j].type != FREE && board[prev_i][prev_j].color == ((*moves % 2 != 0) ? WHITE : BLACK))
+        break;
+      else
+        wprintf(L"Invalid selection. Please select a piece of the correct color.\n");
+    }
+    else
+      wprintf(L"Invalid input. Please enter a valid position.\n");
+    while (getwchar() != '\n')
+      ; // Clear the input buffer
+  }
 
-  // Get the coordinates of the previous and next positions
-  find_piece_coordinates(board, prev_pos, &prev_i, &prev_j);
+  // Get the next position
+  while (1)
+  {
+    wprintf(L"Enter the position where you want to move the piece (e.g., e4): ");
+    wscanf(L"%2s", next_pos);
+    if (strlen(next_pos) == 2 && next_pos[0] >= 'a' && next_pos[0] <= 'h' && next_pos[1] >= '1' && next_pos[1] <= '8')
+    {
+      next_pos[2] = '\0';
+      break;
+    }
+    wprintf(L"Invalid input. Please enter a valid position.\n");
+    while (getwchar() != '\n')
+      ; // Clear the input buffer
+  }
+
+  // Get the coordinates of the next position
   find_piece_coordinates(board, next_pos, &next_i, &next_j);
 
   // Check if the move is valid
@@ -205,7 +374,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
   else
   {
     wprintf(L"Invalid move. Please try again.\n");
-    get_move(board, pp_capture_color_head, pp_history_head, captured_king);
+    get_move(board, pp_capture_color_head, pp_history_head, captured_king, moves);
   }
 }
 
