@@ -112,7 +112,9 @@ int main(void)
   wprintf(L"\033[H\033[J");
 
   if (choice == 2)
+  {
     load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves);
+  }
 
   // Main game loop
   game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves);
@@ -301,9 +303,13 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 
   wprintf(L"\nCheckmate!\n");
   if ((*moves) % 2 == 0)
+  {
     wprintf(L"White wins!\n");
+  }
   else
+  {
     wprintf(L"Black wins!\n");
+  }
 }
 
 void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king, int *moves)
@@ -322,12 +328,18 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
       prev_pos[2] = '\0';
       // Check if the selected piece is of the correct color
       if (find_piece_coordinates(board, prev_pos, &prev_i, &prev_j) && board[prev_i][prev_j].type != FREE && board[prev_i][prev_j].color == ((*moves % 2 != 0) ? WHITE : BLACK))
+      {
         break;
+      }
       else
+      {
         wprintf(L"Invalid selection. Please select a piece of the correct color.\n");
+      }
     }
     else
+    {
       wprintf(L"Invalid input. Please enter a valid position.\n");
+    }
     while (getwchar() != '\n')
       ; // Clear the input buffer
   }
@@ -385,7 +397,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
 
   // Check if the player is not trying to capture their own piece
   if (board[next_i][next_j].color == board[prev_i][prev_j].color)
+  {
     return 0;
+  }
 
 #ifdef DEBUG
   return 1;
@@ -399,24 +413,36 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
     case WHITE:
       // Moving one square forward
       if (next_i == prev_i - 1 && next_j == prev_j && board[next_i][next_j].type == FREE)
+      {
         return 1;
+      }
       // Moving two squares forward on the first move
       if (prev_i == 6 && next_i == prev_i - 2 && next_j == prev_j && board[next_i][next_j].type == FREE && board[prev_i - 1][next_j].type == FREE)
+      {
         return 1;
+      }
       // Capturing diagonally
       if (next_i == prev_i - 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == BLACK)
+      {
         return 1;
+      }
       break;
     case BLACK:
       // Moving one square forward
       if (next_i == prev_i + 1 && next_j == prev_j && board[next_i][next_j].type == FREE)
+      {
         return 1;
+      }
       // Moving two squares forward on the first move
       if (prev_i == 1 && next_i == prev_i + 2 && next_j == prev_j && board[next_i][next_j].type == FREE && board[prev_i + 1][next_j].type == FREE)
+      {
         return 1;
+      }
       // Capturing diagonally
       if (next_i == prev_i + 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == WHITE)
+      {
         return 1;
+      }
       break;
     }
     return 0;
@@ -429,7 +455,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       for (int i = prev_i + step; i != next_i; i += step)
       {
         if (board[i][prev_j].type != FREE)
+        {
           return 0;
+        }
       }
       return 1;
     }
@@ -440,7 +468,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       for (int j = prev_j + step; j != next_j; j += step)
       {
         if (board[prev_i][j].type != FREE)
+        {
           return 0;
+        }
       }
       return 1;
     }
@@ -457,7 +487,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       while (i != next_i && j != next_j)
       {
         if (board[i][j].type != FREE)
+        {
           return 0;
+        }
         i += step_i;
         j += step_j;
       }
@@ -474,7 +506,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       for (int i = prev_i + step; i != next_i; i += step)
       {
         if (board[i][prev_j].type != FREE)
+        {
           return 0;
+        }
       }
       return 1;
     }
@@ -485,7 +519,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       for (int j = prev_j + step; j != next_j; j += step)
       {
         if (board[prev_i][j].type != FREE)
+        {
           return 0;
+        }
       }
       return 1;
     }
@@ -499,7 +535,9 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       while (i != next_i || j != next_j)
       {
         if (board[i][j].type != FREE)
+        {
           return 0;
+        }
         i += step_i;
         j += step_j;
       }
@@ -510,13 +548,17 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
   case KING:
     // Moving one square in any direction
     if (abs(next_i - prev_i) <= 1 && abs(next_j - prev_j) <= 1)
+    {
       return 1;
+    }
     return 0;
 
   case KNIGHT:
     // Moving in an L-shape
     if ((abs(next_i - prev_i) == 2 && abs(next_j - prev_j) == 1) || (abs(next_i - prev_i) == 1 && abs(next_j - prev_j) == 2))
+    {
       return 1;
+    }
     return 0;
 
   default:
