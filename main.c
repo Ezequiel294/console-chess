@@ -11,6 +11,8 @@ Console Chess Game
 #include <wchar.h>
 #include <unistd.h>
 
+#define DEBUG
+
 typedef enum
 {
   WHITE,
@@ -62,7 +64,7 @@ int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
 void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
-void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head);
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves);
 
 int main(void)
@@ -119,7 +121,9 @@ int main(void)
 
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
 {
-  while (1)
+  int captured_king = 0;
+
+  while (!captured_king)
   {
 
     if ((*moves) % 2 != 0)
@@ -129,7 +133,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_white_head);
       print_captures(p_captures_black_head);
       wprintf(L"\nWhite's turn\n");
-      get_move(board, &p_captures_white_head, &p_history_head);
+      get_move(board, &p_captures_white_head, &p_history_head, &captured_king);
       wprintf(L"\033[H\033[J");
       print_board_white(board);
     }
@@ -140,7 +144,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_white_head);
       print_captures(p_captures_black_head);
       wprintf(L"\nBlack's turn\n");
-      get_move(board, &p_captures_black_head, &p_history_head);
+      get_move(board, &p_captures_black_head, &p_history_head, &captured_king);
       wprintf(L"\033[H\033[J");
       print_board_black(board);
     }
@@ -148,12 +152,21 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
     (*moves)++;
 
     // Show the move for 3 seconds before clearing the screen
-    sleep(1.5);
-    wprintf(L"\033[H\033[J");
+    if (!captured_king)
+    {
+      sleep(1);
+      wprintf(L"\033[H\033[J");
+    }
   }
+
+  wprintf(L"\nCheckmate!\n");
+  if ((*moves) % 2 == 0)
+    wprintf(L"White wins!\n");
+  else
+    wprintf(L"Black wins!\n");
 }
 
-void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head)
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king)
 {
   char prev_pos[3];
   char next_pos[3];
@@ -176,6 +189,13 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
     {
       // Update the captures
       update_captures(pp_capture_color_head, board[next_i][next_j]);
+
+      // Check if the piece being captured is a king
+      if (board[next_i][next_j].type == KING)
+      {
+        // End the game
+        *captured_king = 1;
+      }
     }
     // Update the board
     update_board(board, prev_i, prev_j, next_i, next_j);
@@ -185,7 +205,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
   else
   {
     wprintf(L"Invalid move. Please try again.\n");
-    get_move(board, pp_capture_color_head, pp_history_head);
+    get_move(board, pp_capture_color_head, pp_history_head, captured_king);
   }
 }
 
@@ -197,6 +217,10 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
   // Check if the player is not trying to capture their own piece
   if (board[next_i][next_j].color == board[prev_i][prev_j].color)
     return 0;
+
+#ifdef DEBUG
+  return 1;
+#endif
 
   switch (piece_type)
   {
