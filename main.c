@@ -12,7 +12,7 @@ Console Chess Game
 #include <unistd.h>
 #include <stdio.h>
 
-#define DEBUG
+#define PRODUCTION
 
 typedef enum
 {
@@ -68,9 +68,9 @@ void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
 int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
 void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king, int *moves);
-void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves);
+int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves);
-void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves);
+int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves);
 
 int main(void)
 {
@@ -90,7 +90,11 @@ int main(void)
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
   wprintf(L"2 Player Mode\n\n");
-  // TODO: Add instructions
+  wprintf(L"How to Play:\n");
+  wprintf(L"• Enter moves using chess coordinates, letter first! (e.g., 'e2' to 'e4')\n");
+  wprintf(L"• White pieces play first (♚), then Black (♔)\n");
+  wprintf(L"• Save your game anytime by entering 'y' when prompted\n");
+  wprintf(L"• Capture pieces to win - the game ends when a King is captured!\n\n");
 
   // Initialize the board
   Piece_t board[8][8];
@@ -115,9 +119,15 @@ int main(void)
 
   if (choice == 2)
   {
-    load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves);
-    print_history(p_history_head);
-    wprintf(L"\n");
+    if (load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves))
+    {
+      print_history(p_history_head);
+      wprintf(L"\n");
+    }
+    else
+    {
+      wprintf(L"Error loading game. Starting a new one.\n\n");
+    }
   }
 
   // Main game loop
@@ -162,10 +172,10 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
     }
     (*moves)++;
 
-    if (!captured_king)
+    if (!captured_king && (*moves) % 5 == 0)
     {
       // Ask the player if they want to save the game
-      wprintf(L"\nDo you want to save the game? (y/N): ");
+      wprintf(L"\nDo you want to save the game? (y/n): ");
       wscanf(L" %lc", &save_choice);
       while (getwchar() != '\n')
         ; // Clear the input buffer
@@ -179,16 +189,26 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
         wprintf(L"\033[H\033[J");
       }
     }
+
+    if ((*moves) % 5 != 0)
+    {
+      sleep(1);
+      wprintf(L"\033[H\033[J");
+    }
   } while (!captured_king);
 
-  wprintf(L"\nCheckmate!\n");
+  wprintf(L"\nCheckmate, ");
   if ((*moves) % 2 == 0)
   {
-    wprintf(L"White wins!\n");
+    wprintf(L"White wins!\n\n");
+    print_board_white(board);
+    print_history(p_history_head);
   }
   else
   {
-    wprintf(L"Black wins!\n");
+    wprintf(L"Black wins!\n\n");
+    print_board_black(board);
+    print_history(p_history_head);
   }
 }
 
@@ -201,7 +221,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
   // Get the piece to move
   while (1)
   {
-    wprintf(L"Enter the position of the piece you want to move (e.g., e2): ");
+    wprintf(L"Enter the position of the piece you want to move: ");
     wscanf(L"%2s", prev_pos);
     if (strlen(prev_pos) == 2 && prev_pos[0] >= 'a' && prev_pos[0] <= 'h' && prev_pos[1] >= '1' && prev_pos[1] <= '8')
     {
@@ -227,7 +247,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
   // Get the next position
   while (1)
   {
-    wprintf(L"Enter the position where you want to move the piece (e.g., e4): ");
+    wprintf(L"Enter the position where you want to move the piece: ");
     wscanf(L"%2s", next_pos);
     if (strlen(next_pos) == 2 && next_pos[0] >= 'a' && next_pos[0] <= 'h' && next_pos[1] >= '1' && next_pos[1] <= '8')
     {
@@ -446,13 +466,13 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
   }
 }
 
-void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
+int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
 {
   FILE *file = fopen("game_save.bin", "wb");
   if (file == NULL)
   {
     wprintf(L"Error opening file for saving.\n");
-    return;
+    return 0;
   }
 
   // Save the number of moves
@@ -492,15 +512,17 @@ void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 
   fclose(file);
   wprintf(L"Game saved successfully.\n");
+
+  return 1;
 }
 
-void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
+int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
 {
   FILE *file = fopen("game_save.bin", "rb");
   if (file == NULL)
   {
     wprintf(L"Error opening file for loading.\n");
-    return;
+    return 0;
   }
 
   // Load the number of moves
@@ -567,6 +589,8 @@ void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Cap
 
   fclose(file);
   wprintf(L"Game loaded successfully.\n");
+
+  return 1;
 }
 
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
