@@ -130,145 +130,6 @@ int main(void)
   return 0;
 }
 
-void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
-{
-  FILE *file = fopen("game_save.bin", "rb");
-  if (file == NULL)
-  {
-    wprintf(L"Error opening file for loading.\n");
-    return;
-  }
-
-  // Read the board array
-  fread(board, sizeof(Piece_t), 8 * 8, file);
-
-  // Read the white captures linked list
-  Captures_node_t *current = NULL;
-  Captures_node_t *prev = NULL;
-  while (1)
-  {
-    current = (Captures_node_t *)malloc(sizeof(Captures_node_t));
-    fread(current, sizeof(Captures_node_t), 1, file);
-    if (current->p_next == NULL)
-    {
-      free(current);
-      break;
-    }
-    if (*p_captures_white_head == NULL)
-    {
-      *p_captures_white_head = current;
-    }
-    else
-    {
-      prev->p_next = current;
-    }
-    prev = current;
-  }
-
-  // Read the black captures linked list
-  current = NULL;
-  prev = NULL;
-  while (1)
-  {
-    current = (Captures_node_t *)malloc(sizeof(Captures_node_t));
-    fread(current, sizeof(Captures_node_t), 1, file);
-    if (current->p_next == NULL)
-    {
-      free(current);
-      break;
-    }
-    if (*p_captures_black_head == NULL)
-    {
-      *p_captures_black_head = current;
-    }
-    else
-    {
-      prev->p_next = current;
-    }
-    prev = current;
-  }
-
-  // Read the history linked list
-  History_node_t *current_history = NULL;
-  History_node_t *prev_history = NULL;
-  while (1)
-  {
-    current_history = (History_node_t *)malloc(sizeof(History_node_t));
-    fread(current_history, sizeof(History_node_t), 1, file);
-    if (current_history->p_next == NULL)
-    {
-      free(current_history);
-      break;
-    }
-    if (*p_history_head == NULL)
-    {
-      *p_history_head = current_history;
-    }
-    else
-    {
-      prev_history->p_next = current_history;
-    }
-    prev_history = current_history;
-  }
-
-  // Read the number of moves
-  fread(moves, sizeof(int), 1, file);
-
-  fclose(file);
-  wprintf(L"Game loaded successfully.\n");
-}
-
-void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
-{
-  FILE *file = fopen("game_save.bin", "wb");
-  if (file == NULL)
-  {
-    wprintf(L"Error opening file for saving.\n");
-    return;
-  }
-
-  // Write the board array
-  fwrite(board, sizeof(Piece_t), 8 * 8, file);
-
-  // Write the white captures linked list
-  Captures_node_t *current = p_captures_white_head;
-  while (current != NULL)
-  {
-    fwrite(current, sizeof(Captures_node_t), 1, file);
-    current = current->p_next;
-  }
-  // Write a NULL pointer to indicate the end of the list
-  Captures_node_t *null_node = NULL;
-  fwrite(&null_node, sizeof(Captures_node_t *), 1, file);
-
-  // Write the black captures linked list
-  current = p_captures_black_head;
-  while (current != NULL)
-  {
-    fwrite(current, sizeof(Captures_node_t), 1, file);
-    current = current->p_next;
-  }
-  // Write a NULL pointer to indicate the end of the list
-  fwrite(&null_node, sizeof(Captures_node_t *), 1, file);
-
-  // Write the history linked list
-  History_node_t *current_history = p_history_head;
-  while (current_history != NULL)
-  {
-    fwrite(current_history, sizeof(History_node_t), 1, file);
-    current_history = current_history->p_next;
-  }
-  // Write a NULL pointer to indicate the end of the list
-  History_node_t *null_history_node = NULL;
-  fwrite(&null_history_node, sizeof(History_node_t *), 1, file);
-
-  // Write the number of moves
-  fwrite(&moves, sizeof(int), 1, file);
-
-  fclose(file);
-  wprintf(L"Game saved successfully.\n");
-}
-
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
 {
   int captured_king = 0;
@@ -587,6 +448,129 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
   default:
     return 0;
   }
+}
+
+void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
+{
+  FILE *file = fopen("game_save.bin", "wb");
+  if (file == NULL)
+  {
+    wprintf(L"Error opening file for saving.\n");
+    return;
+  }
+
+  // Save the number of moves
+  fwrite(&moves, sizeof(int), 1, file);
+
+  // Save the board
+  fwrite(board, sizeof(Piece_t), 64, file);
+
+  // Save the captures for white
+  Captures_node_t *current_capture = p_captures_white_head;
+  while (current_capture != NULL)
+  {
+    fwrite(&current_capture->piece, sizeof(Piece_t), 1, file);
+    current_capture = current_capture->p_next;
+  }
+  Piece_t end_marker = {L'\0', NONE, "", FREE}; // End marker for captures
+  fwrite(&end_marker, sizeof(Piece_t), 1, file);
+
+  // Save the captures for black
+  current_capture = p_captures_black_head;
+  while (current_capture != NULL)
+  {
+    fwrite(&current_capture->piece, sizeof(Piece_t), 1, file);
+    current_capture = current_capture->p_next;
+  }
+  fwrite(&end_marker, sizeof(Piece_t), 1, file);
+
+  // Save the move history
+  History_node_t *current_history = p_history_head;
+  while (current_history != NULL)
+  {
+    fwrite(current_history, sizeof(History_node_t), 1, file);
+    current_history = current_history->p_next;
+  }
+  History_node_t end_history_marker = {"", "", NULL}; // End marker for history
+  fwrite(&end_history_marker, sizeof(History_node_t), 1, file);
+
+  fclose(file);
+  wprintf(L"Game saved successfully.\n");
+}
+
+void load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
+{
+  FILE *file = fopen("game_save.bin", "rb");
+  if (file == NULL)
+  {
+    wprintf(L"Error opening file for loading.\n");
+    return;
+  }
+
+  // Load the number of moves
+  fread(moves, sizeof(int), 1, file);
+
+  // Load the board
+  fread(board, sizeof(Piece_t), 64, file);
+
+  // Load the captures for white
+  Captures_node_t *current_capture = NULL;
+  Piece_t piece;
+  while (fread(&piece, sizeof(Piece_t), 1, file) && piece.type != FREE)
+  {
+    Captures_node_t *new_capture = (Captures_node_t *)malloc(sizeof(Captures_node_t));
+    new_capture->piece = piece;
+    new_capture->p_next = NULL;
+    if (*p_captures_white_head == NULL)
+    {
+      *p_captures_white_head = new_capture;
+    }
+    else
+    {
+      current_capture->p_next = new_capture;
+    }
+    current_capture = new_capture;
+  }
+
+  // Load the captures for black
+  current_capture = NULL;
+  while (fread(&piece, sizeof(Piece_t), 1, file) && piece.type != FREE)
+  {
+    Captures_node_t *new_capture = (Captures_node_t *)malloc(sizeof(Captures_node_t));
+    new_capture->piece = piece;
+    new_capture->p_next = NULL;
+    if (*p_captures_black_head == NULL)
+    {
+      *p_captures_black_head = new_capture;
+    }
+    else
+    {
+      current_capture->p_next = new_capture;
+    }
+    current_capture = new_capture;
+  }
+
+  // Load the move history
+  History_node_t *current_history = NULL;
+  History_node_t history_node;
+  while (fread(&history_node, sizeof(History_node_t), 1, file) && history_node.prev_pos[0] != '\0')
+  {
+    History_node_t *new_history = (History_node_t *)malloc(sizeof(History_node_t));
+    *new_history = history_node;
+    new_history->p_next = NULL;
+    if (*p_history_head == NULL)
+    {
+      *p_history_head = new_history;
+    }
+    else
+    {
+      current_history->p_next = new_history;
+    }
+    current_history = new_history;
+  }
+
+  fclose(file);
+  wprintf(L"Game loaded successfully.\n");
 }
 
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
