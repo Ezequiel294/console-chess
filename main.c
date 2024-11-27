@@ -164,10 +164,6 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 
     if (!captured_king)
     {
-      // Show the move for a second
-      sleep(1);
-      wprintf(L"\033[H\033[J");
-
       // Ask the player if they want to save the game
       wprintf(L"\nDo you want to save the game? (y/N): ");
       wscanf(L" %lc", &save_choice);
