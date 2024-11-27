@@ -56,6 +56,8 @@ typedef struct History_node_s
 } History_node_t;
 
 void init_board(Piece_t board[8][8]);
+void free_history(History_node_t *head);
+void free_captures(Captures_node_t *head);
 void print_board_white(Piece_t board[8][8]);
 void print_board_black(Piece_t board[8][8]);
 void print_history(History_node_t *p_history_head);
@@ -120,6 +122,10 @@ int main(void)
 
   // Main game loop
   game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves);
+
+  free_captures(p_captures_white_head);
+  free_captures(p_captures_black_head);
+  free_history(p_history_head);
 
   return 0;
 }
@@ -607,6 +613,28 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
       p_current = p_current->p_next;
     }
     p_current->p_next = p_node;
+  }
+}
+
+void free_captures(Captures_node_t *head)
+{
+  Captures_node_t *tmp;
+  while (head != NULL)
+  {
+    tmp = head;
+    head = head->p_next;
+    free(tmp);
+  }
+}
+
+void free_history(History_node_t *head)
+{
+  History_node_t *tmp;
+  while (head != NULL)
+  {
+    tmp = head;
+    head = head->p_next;
+    free(tmp);
   }
 }
 
