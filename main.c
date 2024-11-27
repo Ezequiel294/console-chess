@@ -689,7 +689,7 @@ void print_history(History_node_t *p_history_head)
   History_node_t *p_current = p_history_head;
   while (p_current != NULL)
   {
-    wprintf(L"|  %s   |  %s   |\n", p_current->prev_pos, p_current->next_pos);
+    wprintf(L"|  %-5s |  %-5s |\n", p_current->prev_pos, p_current->next_pos);
     p_current = p_current->p_next;
   }
   wprintf(L"+-----------------+\n");
