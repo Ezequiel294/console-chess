@@ -114,6 +114,8 @@ int main(void)
   if (choice == 2)
   {
     load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves);
+    print_history(p_history_head);
+    wprintf(L"\n");
   }
 
   // Main game loop
@@ -264,8 +266,9 @@ void save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
 {
   int captured_king = 0;
+  wchar_t save_choice;
 
-  while (!captured_king)
+  do
   {
 
     if ((*moves) % 2 != 0)
@@ -290,16 +293,30 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       wprintf(L"\033[H\033[J");
       print_board_black(board);
     }
-
     (*moves)++;
 
-    // Show the move for 3 seconds before clearing the screen
     if (!captured_king)
     {
+      // Show the move for a second
       sleep(1);
       wprintf(L"\033[H\033[J");
+
+      // Ask the player if they want to save the game
+      wprintf(L"\nDo you want to save the game? (y/N): ");
+      wscanf(L" %lc", &save_choice);
+      while (getwchar() != '\n')
+        ; // Clear the input buffer
+      if (save_choice == L'y' || save_choice == L'Y')
+      {
+        save_game(board, p_captures_white_head, p_captures_black_head, p_history_head, *moves);
+        exit(0);
+      }
+      else
+      {
+        wprintf(L"\033[H\033[J");
+      }
     }
-  }
+  } while (!captured_king);
 
   wprintf(L"\nCheckmate!\n");
   if ((*moves) % 2 == 0)
@@ -318,7 +335,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
   char next_pos[3];
   int prev_i, prev_j, next_i, next_j;
 
-  // Get the peice to move
+  // Get the piece to move
   while (1)
   {
     wprintf(L"Enter the position of the piece you want to move (e.g., e2): ");
@@ -568,19 +585,19 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
 
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
 {
-  Captures_node_t *p_new_node = (Captures_node_t *)malloc(sizeof(Captures_node_t));
-  if (p_new_node == NULL)
+  Captures_node_t *p_node = (Captures_node_t *)malloc(sizeof(Captures_node_t));
+  if (p_node == NULL)
   {
     wprintf(L"Memory allocation failed.\n");
     exit(1);
   }
 
-  p_new_node->piece = piece;
-  p_new_node->p_next = NULL;
+  p_node->piece = piece;
+  p_node->p_next = NULL;
 
   if (*pp_captures_head == NULL)
   {
-    *pp_captures_head = p_new_node;
+    *pp_captures_head = p_node;
   }
   else
   {
@@ -589,7 +606,7 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
     {
       p_current = p_current->p_next;
     }
-    p_current->p_next = p_new_node;
+    p_current->p_next = p_node;
   }
 }
 
