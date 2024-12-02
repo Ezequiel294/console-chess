@@ -85,7 +85,7 @@ int main(void)
   History_node_t *p_history_head = NULL;
 
   // Clear the screen
-  wprintf(L"\033[H\033[J");
+  wprintf(L"\033[H\033[2J\033[3J");
 
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
@@ -115,7 +115,7 @@ int main(void)
   }
 
   // Clear the screen after main menu
-  wprintf(L"\033[H\033[J");
+  wprintf(L"\033[H\033[2J\033[3J");
 
   if (choice == 2)
   {
@@ -156,7 +156,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_black_head);
       wprintf(L"\nWhite's turn\n");
       get_move(board, &p_captures_white_head, &p_history_head, &captured_king, moves);
-      wprintf(L"\033[H\033[J");
+      wprintf(L"\033[H\033[2J\033[3J");
       print_board_white(board);
     }
     else
@@ -167,7 +167,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_black_head);
       wprintf(L"\nBlack's turn\n");
       get_move(board, &p_captures_black_head, &p_history_head, &captured_king, moves);
-      wprintf(L"\033[H\033[J");
+      wprintf(L"\033[H\033[2J\033[3J");
       print_board_black(board);
     }
     (*moves)++;
@@ -186,14 +186,14 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       }
       else
       {
-        wprintf(L"\033[H\033[J");
+        wprintf(L"\033[H\033[2J\033[3J");
       }
     }
 
     if ((*moves) % 5 != 0)
     {
       sleep(1);
-      wprintf(L"\033[H\033[J");
+      wprintf(L"\033[H\033[2J\033[3J");
     }
   } while (!captured_king);
 
