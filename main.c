@@ -12,7 +12,7 @@ Console Chess Game
 #include <unistd.h>
 #include <stdio.h>
 
-#define PRODUCTION
+// #define DEBUG
 
 typedef enum
 {
@@ -143,14 +143,14 @@ int main(void)
 /* Function: game_loop
  * The game_loop function manages the main loop of a chess game.
  * It alternates turns between white and black players, updating the board and capturing pieces.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - p_captures_white_head: Pointer to the head of the linked list of captured white pieces.
  * - p_captures_black_head: Pointer to the head of the linked list of captured black pieces.
  * - p_history_head: Pointer to the head of the linked list of move history.
  * - moves: Pointer to the integer tracking the number of moves made.
- * 
+ *
  * The function performs the following steps:
  * 1. Initializes variables for tracking if the king is captured and for saving the game.
  * 2. Enters a loop that continues until a king is captured.
@@ -159,7 +159,7 @@ int main(void)
  * 5. Every 5 moves, prompts the player to save the game.
  * 6. Clears the screen after each move.
  * 7. If a king is captured, declares the winner and prints the final board and move history.
-*/
+ */
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
 {
   int captured_king = 0;
@@ -234,14 +234,14 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
 
 /* Function: get_move
  * The get_move function handles the process of getting and validating a player's move in a chess game.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - pp_capture_color_head: Double pointer to the head of the linked list of captured pieces of the current player's color.
  * - pp_history_head: Double pointer to the head of the linked list of move history.
  * - captured_king: Pointer to an integer indicating if a king has been captured.
  * - moves: Pointer to the integer tracking the number of moves made.
- * 
+ *
  * The function performs the following steps:
  * 1. Prompts the player to enter the position of the piece they want to move.
  * 2. Validates the input and checks if the selected piece is of the correct color.
@@ -251,7 +251,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
  * 6. If the move is valid, updates the board, captures, and history.
  * 7. If the move captures a king, sets the captured_king flag to end the game.
  * 8. If the move is invalid, prompts the player to try again.
-*/
+ */
 void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, History_node_t **pp_history_head, int *captured_king, int *moves)
 {
   char prev_pos[3];
@@ -332,14 +332,14 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
 
 /* Function: is_valid_move
  * The is_valid_move function checks if a move in a chess game is valid based on the piece type and the rules of chess.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - prev_i: The row index of the piece's current position.
  * - prev_j: The column index of the piece's current position.
  * - next_i: The row index of the piece's target position.
  * - next_j: The column index of the piece's target position.
- * 
+ *
  * The function performs the following steps:
  * 1. Retrieves the type of the piece being moved.
  * 2. Checks if the target position contains a piece of the same color, returning 0 if true.
@@ -351,7 +351,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Hist
  *    - KING: Moves one square in any direction.
  *    - KNIGHT: Moves in an L-shape.
  * 4. Returns 1 if the move is valid, otherwise returns 0.
-*/
+ */
 int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j)
 {
   // Get the piece type being moved
@@ -530,14 +530,14 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
 
 /* Function: save_game
  * The save_game function saves the current state of a chess game to a binary file.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - p_captures_white_head: Pointer to the head of the linked list of captured white pieces.
  * - p_captures_black_head: Pointer to the head of the linked list of captured black pieces.
  * - p_history_head: Pointer to the head of the linked list of move history.
  * - moves: The number of moves made in the game.
- * 
+ *
  * The function performs the following steps:
  * 1. Opens a binary file for writing. If the file cannot be opened, prints an error message and returns 0.
  * 2. Writes the number of moves to the file.
@@ -547,7 +547,7 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
  * 6. Writes the move history to the file, followed by an end marker.
  * 7. Closes the file and prints a success message.
  * 8. Returns 1 to indicate successful saving.
-*/
+ */
 int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
 {
   FILE *file = fopen("game_save.bin", "wb");
@@ -600,14 +600,14 @@ int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captu
 
 /* Function: load_game
  * The load_game function loads the state of a chess game from a binary file.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - p_captures_white_head: Double pointer to the head of the linked list of captured white pieces.
  * - p_captures_black_head: Double pointer to the head of the linked list of captured black pieces.
  * - p_history_head: Double pointer to the head of the linked list of move history.
  * - moves: Pointer to the integer tracking the number of moves made.
- * 
+ *
  * The function performs the following steps:
  * 1. Opens a binary file for reading. If the file cannot be opened, prints an error message and returns 0.
  * 2. Reads the number of moves from the file.
@@ -616,7 +616,7 @@ int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captu
  * 5. Reads the captured black pieces from the file and reconstructs the linked list.
  * 6. Reads the move history from the file and reconstructs the linked list.
  * 7. Closes the file and returns 1 to indicate successful loading.
-*/
+ */
 int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
 {
   FILE *file = fopen("game_save.bin", "rb");
@@ -696,17 +696,17 @@ int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Capt
 
 /* Function: update_captures
  * The update_captures function adds a captured piece to the linked list of captures.
- * 
+ *
  * Parameters:
  * - pp_captures_head: Double pointer to the head of the linked list of captured pieces.
  * - piece: The piece that has been captured.
- * 
+ *
  * The function performs the following steps:
  * 1. Allocates memory for a new capture node. If memory allocation fails, prints an error message and exits.
  * 2. Initializes the new capture node with the captured piece and sets its next pointer to NULL.
  * 3. If the captures list is empty, sets the head of the list to the new node.
  * 4. If the captures list is not empty, traverses to the end of the list and adds the new node.
-*/
+ */
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
 {
   Captures_node_t *p_node = (Captures_node_t *)malloc(sizeof(Captures_node_t));
@@ -736,17 +736,17 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece)
 
 /* Function: free_captures
  * The free_captures function frees the memory allocated for the linked list of captured pieces.
- * 
+ *
  * Parameters:
  * - head: Pointer to the head of the linked list of captured pieces.
- * 
+ *
  * The function performs the following steps:
  * 1. Iterates through the linked list.
  * 2. For each node, stores the next node in a temporary pointer.
  * 3. Frees the current node.
  * 4. Moves to the next node using the temporary pointer.
  * 5. Continues until all nodes are freed.
-*/
+ */
 void free_captures(Captures_node_t *head)
 {
   Captures_node_t *tmp;
@@ -760,17 +760,17 @@ void free_captures(Captures_node_t *head)
 
 /* Function: free_history
  * The free_history function frees the memory allocated for the linked list of move history.
- * 
+ *
  * Parameters:
  * - head: Pointer to the head of the linked list of move history.
- * 
+ *
  * The function performs the following steps:
  * 1. Iterates through the linked list.
  * 2. For each node, stores the next node in a temporary pointer.
  * 3. Frees the current node.
  * 4. Moves to the next node using the temporary pointer.
  * 5. Continues until all nodes are freed.
-*/
+ */
 void free_history(History_node_t *head)
 {
   History_node_t *tmp;
@@ -784,18 +784,18 @@ void free_history(History_node_t *head)
 
 /* Function: update_board
  * The update_board function updates the chess board by moving a piece from one position to another.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - prev_i: The row index of the piece's current position.
  * - prev_j: The column index of the piece's current position.
  * - next_i: The row index of the piece's target position.
  * - next_j: The column index of the piece's target position.
- * 
+ *
  * The function performs the following steps:
  * 1. Copies the piece from the previous position to the next position.
  * 2. Clears the previous position by setting it to an empty piece.
-*/
+ */
 void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j)
 {
   // Copy the piece from the previous position to the next position
@@ -811,18 +811,18 @@ void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
 
 /* Function: update_history
  * The update_history function adds a new move to the linked list of move history.
- * 
+ *
  * Parameters:
  * - pp_history_head: Double pointer to the head of the linked list of move history.
  * - prev_pos: The previous position of the piece as a string (e.g., "e2").
  * - next_pos: The next position of the piece as a string (e.g., "e4").
- * 
+ *
  * The function performs the following steps:
  * 1. Allocates memory for a new history node. If memory allocation fails, prints an error message and exits.
  * 2. Initializes the new history node with the previous and next positions and sets its next pointer to NULL.
  * 3. If the history list is empty, sets the head of the list to the new node.
  * 4. If the history list is not empty, traverses to the end of the list and adds the new node.
-*/
+ */
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3])
 {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
@@ -853,19 +853,19 @@ void update_history(History_node_t **pp_history_head, char prev_pos[3], char nex
 
 /* Function: find_piece_coordinates
  * The find_piece_coordinates function finds the coordinates of a piece on the chess board based on its position string.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
  * - pos: The position of the piece as a string (e.g., "e2").
  * - i: Pointer to an integer where the row index of the piece will be stored.
  * - j: Pointer to an integer where the column index of the piece will be stored.
- * 
+ *
  * The function performs the following steps:
  * 1. Iterates through each cell of the board.
  * 2. Compares the position string of each piece with the given position string.
  * 3. If a match is found, stores the coordinates in the provided pointers and returns 1.
  * 4. If no match is found after checking all cells, returns 0.
-*/
+ */
 int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j)
 {
   for (int x = 0; x < 8; x++)
@@ -885,17 +885,17 @@ int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j)
 
 /* Function: print_history
  * The print_history function prints the move history of the chess game in a formatted table.
- * 
+ *
  * Parameters:
  * - p_history_head: Pointer to the head of the linked list of move history.
- * 
+ *
  * The function performs the following steps:
  * 1. Prints the header of the move history table.
  * 2. Iterates through the linked list of move history.
  * 3. For each node, prints the previous and next positions of the move.
  * 4. Continues until all moves in the history are printed.
  * 5. Prints the footer of the move history table.
-*/
+ */
 void print_history(History_node_t *p_history_head)
 {
   wprintf(L"\nMove History:\n");
@@ -913,17 +913,17 @@ void print_history(History_node_t *p_history_head)
 
 /* Function: print_captures
  * The print_captures function prints the icons of captured pieces from a linked list.
- * 
+ *
  * Parameters:
  * - p_captures_head: Pointer to the head of the linked list of captured pieces.
- * 
+ *
  * The function performs the following steps:
  * 1. Checks if the captures list is not empty.
  * 2. Iterates through the linked list of captured pieces.
  * 3. For each node, prints the icon of the captured piece.
  * 4. Continues until all captured pieces are printed.
  * 5. Prints a newline character at the end.
-*/
+ */
 void print_captures(Captures_node_t *p_captures_head)
 {
   if (p_captures_head != NULL)
@@ -940,10 +940,10 @@ void print_captures(Captures_node_t *p_captures_head)
 
 /* Function: print_board_white
  * The print_board_white function prints the chess board from the white player's perspective.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
- * 
+ *
  * The function performs the following steps:
  * 1. Prints the column labels (a to h).
  * 2. Prints the top border of the board.
@@ -951,7 +951,7 @@ void print_captures(Captures_node_t *p_captures_head)
  * 4. For each row, prints the row number, the icons of the pieces in each column, and the row number again.
  * 5. Prints the border between rows.
  * 6. Prints the column labels (a to h) again at the bottom.
-*/
+ */
 void print_board_white(Piece_t board[8][8])
 {
   wprintf(L"   a   b   c   d   e   f   g   h\n");
@@ -971,10 +971,10 @@ void print_board_white(Piece_t board[8][8])
 
 /* Function: print_board_black
  * The print_board_black function prints the chess board from the black player's perspective.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
- * 
+ *
  * The function performs the following steps:
  * 1. Prints the column labels (h to a).
  * 2. Prints the top border of the board.
@@ -982,7 +982,7 @@ void print_board_white(Piece_t board[8][8])
  * 4. For each row, prints the row number, the icons of the pieces in each column in reverse order, and the row number again.
  * 5. Prints the border between rows.
  * 6. Prints the column labels (h to a) again at the bottom.
-*/
+ */
 void print_board_black(Piece_t board[8][8])
 {
   wprintf(L"   h   g   f   e   d   c   b   a\n");
@@ -1002,17 +1002,17 @@ void print_board_black(Piece_t board[8][8])
 
 /* Function: print_board
  * The init_board function initializes the chess board with the standard starting positions for all pieces.
- * 
+ *
  * Parameters:
  * - board: The 8x8 array representing the chess board.
- * 
+ *
  * The function performs the following steps:
  * 1. Defines a temporary board with the initial positions of all pieces.
  *    - The first two rows are filled with black pieces.
  *    - The last two rows are filled with white pieces.
  *    - The middle rows are empty.
  * 2. Copies the temporary board to the actual board using memcpy.
-*/
+ */
 void init_board(Piece_t board[8][8])
 {
   Piece_t temp_board[8][8] = {
