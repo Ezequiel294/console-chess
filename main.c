@@ -210,13 +210,14 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       }
     }
 
-    if ((*moves) % 5 != 0)
+    if ((*moves) % 5 != 0 && !captured_king)
     {
       sleep(1);
       wprintf(L"\033[H\033[2J\033[3J");
     }
   } while (!captured_king);
 
+  wprintf(L"\033[H\033[2J\033[3J");
   wprintf(L"\nCheckmate, ");
   if ((*moves) % 2 == 0)
   {
