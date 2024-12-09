@@ -1,2 +1,7 @@
-*.out
-*.bin
+# Ignore everything
+/*
+
+# Except for these files...
+!.gitignore
+!readme.txt
+!main.c
