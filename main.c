@@ -41,6 +41,18 @@ typedef struct
   Piece_type_t type;
 } Piece_t;
 
+// Game state for tracking special move conditions
+typedef struct
+{
+  int white_king_moved;
+  int black_king_moved;
+  int white_rook_a_moved; // queenside (a1)
+  int white_rook_h_moved; // kingside (h1)
+  int black_rook_a_moved; // queenside (a8)
+  int black_rook_h_moved; // kingside (h8)
+  int en_passant_col;     // column where en passant capture is possible, -1 if none
+} GameState_t;
+
 // Linked list to store the player's captures
 typedef struct Captures_node_s
 {
@@ -60,6 +72,7 @@ char read_single_char(void);
 void enable_mouse_tracking(void);
 void disable_mouse_tracking(void);
 void init_board(Piece_t board[8][8]);
+void init_game_state(GameState_t *state);
 void free_history(History_node_t *head);
 void free_captures(Captures_node_t *head);
 void enable_raw_mode(struct termios *orig);
@@ -71,14 +84,15 @@ void print_captures(Captures_node_t *p_captures_head);
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
 int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
 void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
-int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
+int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j, GameState_t *state);
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
 void redraw_screen(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white, const char *error_msg);
 int read_position_from_input(char *buf, int buf_size, int is_white_perspective);
-int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves);
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves);
-int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves);
-void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t **pp_history_head, int *captured_king, int *moves);
+void handle_promotion(Piece_t board[8][8], int row, int col, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white);
+int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, GameState_t *state);
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves, GameState_t *state);
+int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves, GameState_t *state);
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t **pp_history_head, int *captured_king, int *moves, GameState_t *state);
 
 
 int main(void)
@@ -92,6 +106,8 @@ int main(void)
   Captures_node_t *p_captures_white_head = NULL;
   Captures_node_t *p_captures_black_head = NULL;
   History_node_t *p_history_head = NULL;
+  GameState_t game_state;
+  init_game_state(&game_state);
 
   // Clear the screen
   wprintf(L"\033[H\033[2J\033[3J");
@@ -130,14 +146,14 @@ int main(void)
 
   if (choice == 2)
   {
-    if (!load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves))
+    if (!load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves, &game_state))
     {
       wprintf(L"Error loading game. Starting a new one.\n\n");
     }
   }
 
   // Main game loop
-  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves);
+  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves, &game_state);
 
   free_captures(p_captures_white_head);
   free_captures(p_captures_black_head);
@@ -166,7 +182,7 @@ int main(void)
  * 6. Clears the screen after each move.
  * 7. If a king is captured, declares the winner and prints the final board and move history.
  */
-void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves)
+void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves, GameState_t *state)
 {
   int captured_king = 0;
 
@@ -182,7 +198,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_white_head);
       print_captures(p_captures_black_head);
       wprintf(L"\nWhite's turn\n");
-      get_move(board, &p_captures_white_head, p_captures_white_head, p_captures_black_head, &p_history_head, &captured_king, moves);
+      get_move(board, &p_captures_white_head, p_captures_white_head, p_captures_black_head, &p_history_head, &captured_king, moves, state);
       wprintf(L"\033[H\033[2J\033[3J");
       print_board_white(board);
     }
@@ -193,7 +209,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_white_head);
       print_captures(p_captures_black_head);
       wprintf(L"\nBlack's turn\n");
-      get_move(board, &p_captures_black_head, p_captures_white_head, p_captures_black_head, &p_history_head, &captured_king, moves);
+      get_move(board, &p_captures_black_head, p_captures_white_head, p_captures_black_head, &p_history_head, &captured_king, moves, state);
       wprintf(L"\033[H\033[2J\033[3J");
       print_board_black(board);
     }
@@ -502,7 +518,7 @@ int read_position_from_input(char *buf, int buf_size, int is_white_perspective)
   return result;
 }
 
-void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t **pp_history_head, int *captured_king, int *moves)
+void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t **pp_history_head, int *captured_king, int *moves, GameState_t *state)
 {
   char prev_pos[16];
   char next_pos[16];
@@ -521,7 +537,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
       // Handle "save" command
       if (strcmp(prev_pos, "save") == 0)
       {
-        save_game(board, p_captures_white_head, p_captures_black_head, *pp_history_head, *moves);
+        save_game(board, p_captures_white_head, p_captures_black_head, *pp_history_head, *moves, state);
         exit(0);
       }
 
@@ -572,7 +588,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
       // Handle "save" command
       if (strcmp(next_pos, "save") == 0)
       {
-        save_game(board, p_captures_white_head, p_captures_black_head, *pp_history_head, *moves);
+        save_game(board, p_captures_white_head, p_captures_black_head, *pp_history_head, *moves, state);
         exit(0);
       }
 
@@ -604,7 +620,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
   find_piece_coordinates(board, next_pos, &next_i, &next_j);
 
   // Check if the move is valid
-  if (is_valid_move(board, prev_i, prev_j, next_i, next_j))
+  if (is_valid_move(board, prev_i, prev_j, next_i, next_j, state))
   {
     // Check if the move captures a piece
     if (board[next_i][next_j].type != FREE)
@@ -618,16 +634,84 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
         // End the game
         *captured_king = 1;
       }
+
+      // If a rook is captured, disable castling for that rook
+      if (board[next_i][next_j].type == ROOK)
+      {
+        if (next_i == 7 && next_j == 0) state->white_rook_a_moved = 1;
+        if (next_i == 7 && next_j == 7) state->white_rook_h_moved = 1;
+        if (next_i == 0 && next_j == 0) state->black_rook_a_moved = 1;
+        if (next_i == 0 && next_j == 7) state->black_rook_h_moved = 1;
+      }
     }
+
+    // Handle en passant capture
+    if (board[prev_i][prev_j].type == PAWN && next_j != prev_j && board[next_i][next_j].type == FREE)
+    {
+      // This is an en passant capture - remove the captured pawn
+      update_captures(pp_capture_color_head, board[prev_i][next_j]);
+      board[prev_i][next_j].icon = L' ';
+      board[prev_i][next_j].color = NONE;
+      board[prev_i][next_j].type = FREE;
+    }
+
+    // Track castling state changes
+    if (board[prev_i][prev_j].type == KING)
+    {
+      if (board[prev_i][prev_j].color == WHITE)
+        state->white_king_moved = 1;
+      else
+        state->black_king_moved = 1;
+
+      // Handle castling move - also move the rook
+      if (abs(next_j - prev_j) == 2)
+      {
+        if (next_j > prev_j)
+        {
+          // Kingside castling - move rook from h to f
+          update_board(board, prev_i, 7, prev_i, 5);
+        }
+        else
+        {
+          // Queenside castling - move rook from a to d
+          update_board(board, prev_i, 0, prev_i, 3);
+        }
+      }
+    }
+    if (board[prev_i][prev_j].type == ROOK)
+    {
+      if (prev_i == 7 && prev_j == 0) state->white_rook_a_moved = 1;
+      if (prev_i == 7 && prev_j == 7) state->white_rook_h_moved = 1;
+      if (prev_i == 0 && prev_j == 0) state->black_rook_a_moved = 1;
+      if (prev_i == 0 && prev_j == 7) state->black_rook_h_moved = 1;
+    }
+
+    // Track en passant eligibility for next turn
+    if (board[prev_i][prev_j].type == PAWN && abs(next_i - prev_i) == 2)
+    {
+      state->en_passant_col = prev_j;
+    }
+    else
+    {
+      state->en_passant_col = -1;
+    }
+
     // Update the board
     update_board(board, prev_i, prev_j, next_i, next_j);
+
+    // Handle pawn promotion
+    if (board[next_i][next_j].type == PAWN && (next_i == 0 || next_i == 7))
+    {
+      handle_promotion(board, next_i, next_j, p_captures_white_head, p_captures_black_head, is_white);
+    }
+
     // Update the history
     update_history(pp_history_head, prev_pos, next_pos);
   }
   else
   {
     redraw_screen(board, p_captures_white_head, p_captures_black_head, is_white, "Invalid move. Please try again.");
-    get_move(board, pp_capture_color_head, p_captures_white_head, p_captures_black_head, pp_history_head, captured_king, moves);
+    get_move(board, pp_capture_color_head, p_captures_white_head, p_captures_black_head, pp_history_head, captured_king, moves, state);
   }
 }
 
@@ -653,7 +737,7 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
  *    - KNIGHT: Moves in an L-shape.
  * 4. Returns 1 if the move is valid, otherwise returns 0.
  */
-int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j)
+int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j, GameState_t *state)
 {
   // Get the piece type being moved
   int piece_type = board[prev_i][prev_j].type;
@@ -689,6 +773,13 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       {
         return 1;
       }
+      // En passant capture for white (white moves up, so row 3 = index 3)
+      if (prev_i == 3 && next_i == 2 && (next_j == prev_j - 1 || next_j == prev_j + 1) &&
+          board[next_i][next_j].type == FREE && state->en_passant_col == next_j &&
+          board[prev_i][next_j].type == PAWN && board[prev_i][next_j].color == BLACK)
+      {
+        return 1;
+      }
       break;
     case BLACK:
       // Moving one square forward
@@ -703,6 +794,13 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
       }
       // Capturing diagonally
       if (next_i == prev_i + 1 && (next_j == prev_j - 1 || next_j == prev_j + 1) && board[next_i][next_j].color == WHITE)
+      {
+        return 1;
+      }
+      // En passant capture for black (black moves down, so row 4 = index 4)
+      if (prev_i == 4 && next_i == 5 && (next_j == prev_j - 1 || next_j == prev_j + 1) &&
+          board[next_i][next_j].type == FREE && state->en_passant_col == next_j &&
+          board[prev_i][next_j].type == PAWN && board[prev_i][next_j].color == WHITE)
       {
         return 1;
       }
@@ -814,6 +912,43 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
     {
       return 1;
     }
+    // Castling
+    if (next_i == prev_i && abs(next_j - prev_j) == 2)
+    {
+      Color color = board[prev_i][prev_j].color;
+      int king_moved = (color == WHITE) ? state->white_king_moved : state->black_king_moved;
+      if (king_moved)
+        return 0;
+
+      if (next_j > prev_j)
+      {
+        // Kingside castling
+        int rook_moved = (color == WHITE) ? state->white_rook_h_moved : state->black_rook_h_moved;
+        if (rook_moved)
+          return 0;
+        // Check rook is present
+        if (board[prev_i][7].type != ROOK || board[prev_i][7].color != color)
+          return 0;
+        // Check squares between king and rook are empty
+        if (board[prev_i][5].type != FREE || board[prev_i][6].type != FREE)
+          return 0;
+        return 1;
+      }
+      else
+      {
+        // Queenside castling
+        int rook_moved = (color == WHITE) ? state->white_rook_a_moved : state->black_rook_a_moved;
+        if (rook_moved)
+          return 0;
+        // Check rook is present
+        if (board[prev_i][0].type != ROOK || board[prev_i][0].color != color)
+          return 0;
+        // Check squares between king and rook are empty
+        if (board[prev_i][1].type != FREE || board[prev_i][2].type != FREE || board[prev_i][3].type != FREE)
+          return 0;
+        return 1;
+      }
+    }
     return 0;
 
   case KNIGHT:
@@ -849,7 +984,7 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
  * 7. Closes the file and prints a success message.
  * 8. Returns 1 to indicate successful saving.
  */
-int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves)
+int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, GameState_t *state)
 {
   FILE *file = fopen("game_save.bin", "wb");
   if (file == NULL)
@@ -860,6 +995,9 @@ int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captu
 
   // Save the number of moves
   fwrite(&moves, sizeof(int), 1, file);
+
+  // Save the game state (castling rights, en passant)
+  fwrite(state, sizeof(GameState_t), 1, file);
 
   // Save the board
   fwrite(board, sizeof(Piece_t), 64, file);
@@ -918,7 +1056,7 @@ int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captu
  * 6. Reads the move history from the file and reconstructs the linked list.
  * 7. Closes the file and returns 1 to indicate successful loading.
  */
-int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves)
+int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves, GameState_t *state)
 {
   FILE *file = fopen("game_save.bin", "rb");
   if (file == NULL)
@@ -929,6 +1067,9 @@ int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Capt
 
   // Load the number of moves
   fread(moves, sizeof(int), 1, file);
+
+  // Load the game state (castling rights, en passant)
+  fread(state, sizeof(GameState_t), 1, file);
 
   // Load the board
   fread(board, sizeof(Piece_t), 64, file);
@@ -1314,6 +1455,92 @@ void print_board_black(Piece_t board[8][8])
  *    - The middle rows are empty.
  * 2. Copies the temporary board to the actual board using memcpy.
  */
+void init_game_state(GameState_t *state)
+{
+  state->white_king_moved = 0;
+  state->black_king_moved = 0;
+  state->white_rook_a_moved = 0;
+  state->white_rook_h_moved = 0;
+  state->black_rook_a_moved = 0;
+  state->black_rook_h_moved = 0;
+  state->en_passant_col = -1;
+}
+
+/* Function: handle_promotion
+ * Prompts the player to choose a piece for pawn promotion.
+ * The pawn at board[row][col] is replaced with the chosen piece.
+ */
+void handle_promotion(Piece_t board[8][8], int row, int col, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white)
+{
+  Color color = board[row][col].color;
+  wchar_t queen_icon, rook_icon, bishop_icon, knight_icon;
+
+  if (color == WHITE)
+  {
+    queen_icon = L'󰡚';
+    rook_icon = L'󰡛';
+    bishop_icon = L'󰡜';
+    knight_icon = L'󰡘';
+  }
+  else
+  {
+    queen_icon = L'\uED65';
+    rook_icon = L'\uED66';
+    bishop_icon = L'\uED60';
+    knight_icon = L'\uED63';
+  }
+
+  // Redraw the board to show the pawn at the promotion square
+  wprintf(L"\033[H\033[2J\033[3J");
+  if (is_white)
+    print_board_white(board);
+  else
+    print_board_black(board);
+  wprintf(L"\n");
+  print_captures(p_captures_white_head);
+  print_captures(p_captures_black_head);
+
+  wprintf(L"\nPawn promotion! Choose a piece:\n");
+  wprintf(L"  1. Queen  (%lc)\n", queen_icon);
+  wprintf(L"  2. Rook   (%lc)\n", rook_icon);
+  wprintf(L"  3. Bishop (%lc)\n", bishop_icon);
+  wprintf(L"  4. Knight (%lc)\n", knight_icon);
+  wprintf(L"Enter 1-4: ");
+  fflush(stdout);
+
+  char choice;
+  while (1)
+  {
+    choice = read_single_char();
+    if (choice >= '1' && choice <= '4')
+    {
+      wprintf(L"%c\n", choice);
+      fflush(stdout);
+      break;
+    }
+  }
+
+  switch (choice)
+  {
+  case '1':
+    board[row][col].type = QUEEN;
+    board[row][col].icon = queen_icon;
+    break;
+  case '2':
+    board[row][col].type = ROOK;
+    board[row][col].icon = rook_icon;
+    break;
+  case '3':
+    board[row][col].type = BISHOP;
+    board[row][col].icon = bishop_icon;
+    break;
+  case '4':
+    board[row][col].type = KNIGHT;
+    board[row][col].icon = knight_icon;
+    break;
+  }
+}
+
 void init_board(Piece_t board[8][8])
 {
   Piece_t temp_board[8][8] = {

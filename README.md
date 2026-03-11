@@ -28,6 +28,12 @@ A two-player chess game that runs entirely in the terminal, featuring both keybo
 - **Turn order**: White pieces play first, then Black. Turns alternate after each move.
 - **Winning**: The game ends when a King is captured.
 
+### Special Moves
+
+- **Castling**: Move the King two squares towards a Rook to castle (e.g., `e1` → `g1` for kingside, `e1` → `c1` for queenside). Both the King and Rook must not have moved previously, and the squares between them must be empty.
+- **En passant**: If an opponent's pawn advances two squares and lands beside your pawn, you can capture it by moving diagonally to the square it passed through. This must be done immediately on the next turn.
+- **Pawn promotion**: When a pawn reaches the opposite end of the board, you will be prompted to choose a replacement piece (Queen, Rook, Bishop, or Knight).
+
 ### In-Game Commands
 
 At any move prompt, you can type the following commands instead of a coordinate:
@@ -46,4 +52,4 @@ At any move prompt, you can type the following commands instead of a coordinate:
 
 - Ensure your terminal supports Unicode and that the Nerd Font is correctly configured to display the chess piece icons.
 - Mouse click selection works by mapping your click position to the board grid. If icons render as double-width in your terminal, click accuracy may vary — use keyboard input as a fallback.
-- Special moves such as **castling**, **en passant**, and **pawn promotion** are not supported yet.
+- Check and checkmate are not enforced — the game ends when a King is actually captured.
