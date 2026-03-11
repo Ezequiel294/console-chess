@@ -73,6 +73,8 @@ void enable_mouse_tracking(void);
 void disable_mouse_tracking(void);
 void init_board(Piece_t board[8][8]);
 void init_game_state(GameState_t *state);
+void show_valid_moves(Piece_t board[8][8], int piece_i, int piece_j, GameState_t *state);
+void clear_valid_moves(Piece_t board[8][8]);
 void free_history(History_node_t *head);
 void free_captures(Captures_node_t *head);
 void enable_raw_mode(struct termios *orig);
@@ -558,6 +560,10 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
         // Check if the selected piece is of the correct color
         if (find_piece_coordinates(board, prev_pos, &prev_i, &prev_j) && board[prev_i][prev_j].type != FREE && board[prev_i][prev_j].color == (is_white ? WHITE : BLACK))
         {
+          // Show valid move indicators on the board
+          show_valid_moves(board, prev_i, prev_j, state);
+          redraw_screen(board, p_captures_white_head, p_captures_black_head, is_white, NULL);
+          clear_valid_moves(board);
           break;
         }
         else
@@ -600,7 +606,9 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
         wprintf(L"\nPress Enter to return to the game...");
         fflush(stdout);
         read_single_char();
+        show_valid_moves(board, prev_i, prev_j, state);
         redraw_screen(board, p_captures_white_head, p_captures_black_head, is_white, NULL);
+        clear_valid_moves(board);
         continue;
       }
 
@@ -608,11 +616,15 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
       {
         break;
       }
+      show_valid_moves(board, prev_i, prev_j, state);
       redraw_screen(board, p_captures_white_head, p_captures_black_head, is_white, "Invalid input. Please enter a valid position, 'save', or 'history'.");
+      clear_valid_moves(board);
     }
     else
     {
+      show_valid_moves(board, prev_i, prev_j, state);
       redraw_screen(board, p_captures_white_head, p_captures_black_head, is_white, NULL);
+      clear_valid_moves(board);
     }
   }
 
@@ -1455,6 +1467,45 @@ void print_board_black(Piece_t board[8][8])
  *    - The middle rows are empty.
  * 2. Copies the temporary board to the actual board using memcpy.
  */
+/* Function: show_valid_moves
+ * Temporarily places a dot marker () on all empty squares that the selected
+ * piece can legally move to. Squares occupied by enemy pieces are left as-is
+ * since the player can already see them as capturable targets.
+ */
+void show_valid_moves(Piece_t board[8][8], int piece_i, int piece_j, GameState_t *state)
+{
+  for (int i = 0; i < 8; i++)
+  {
+    for (int j = 0; j < 8; j++)
+    {
+      if (i == piece_i && j == piece_j)
+        continue;
+      if (board[i][j].type == FREE && is_valid_move(board, piece_i, piece_j, i, j, state))
+      {
+        board[i][j].icon = L''; //  Black Circle
+      }
+    }
+  }
+}
+
+/* Function: clear_valid_moves
+ * Removes the dot markers placed by show_valid_moves, restoring empty squares
+ * back to a space character.
+ */
+void clear_valid_moves(Piece_t board[8][8])
+{
+  for (int i = 0; i < 8; i++)
+  {
+    for (int j = 0; j < 8; j++)
+    {
+      if (board[i][j].type == FREE && board[i][j].icon != L' ')
+      {
+        board[i][j].icon = L' ';
+      }
+    }
+  }
+}
+
 void init_game_state(GameState_t *state)
 {
   state->white_king_moved = 0;
