@@ -3,5 +3,5 @@
 
 # Except for these files...
 !.gitignore
-!readme.txt
+!README.md
 !main.c
