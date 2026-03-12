@@ -71,14 +71,13 @@ typedef struct History_node_s
 char read_single_char(void);
 void enable_mouse_tracking(void);
 void disable_mouse_tracking(void);
-void enter_alt_screen(void);
-void exit_alt_screen(void);
 void init_board(Piece_t board[8][8]);
-void free_history(History_node_t *head);
 void init_game_state(GameState_t *state);
+void show_valid_moves(Piece_t board[8][8], int piece_i, int piece_j, GameState_t *state);
+void clear_valid_moves(Piece_t board[8][8]);
+void free_history(History_node_t *head);
 void free_captures(Captures_node_t *head);
 void enable_raw_mode(struct termios *orig);
-void clear_valid_moves(Piece_t board[8][8]);
 void print_board_white(Piece_t board[8][8]);
 void print_board_black(Piece_t board[8][8]);
 void disable_raw_mode(struct termios *orig);
@@ -86,13 +85,12 @@ void print_history(History_node_t *p_history_head);
 void print_captures(Captures_node_t *p_captures_head);
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
 int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j);
-int read_position_from_input(char *buf, int buf_size, int is_white_perspective);
 void update_board(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j);
-void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
-void show_valid_moves(Piece_t board[8][8], int piece_i, int piece_j, GameState_t *state);
 int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int next_j, GameState_t *state);
-void handle_promotion(Piece_t board[8][8], int row, int col, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white);
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]);
 void redraw_screen(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white, const char *error_msg);
+int read_position_from_input(char *buf, int buf_size, int is_white_perspective);
+void handle_promotion(Piece_t board[8][8], int row, int col, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white);
 int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves, GameState_t *state);
 void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int *moves, GameState_t *state);
 int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves, GameState_t *state);
@@ -110,13 +108,11 @@ int main(void)
   Captures_node_t *p_captures_white_head = NULL;
   Captures_node_t *p_captures_black_head = NULL;
   History_node_t *p_history_head = NULL;
-
   GameState_t game_state;
   init_game_state(&game_state);
 
-  // Enter the alternate screen buffer and clear it
-  enter_alt_screen();
-  wprintf(L"\033[H\033[2J");
+  // Clear the screen
+  wprintf(L"\033[H\033[2J\033[3J");
 
   // Welcome message and instructions
   wprintf(L"\nWelcome to Console Chess!\n");
@@ -143,11 +139,12 @@ int main(void)
   {
     wprintf(L"Invalid input. Please enter 1 or 2: ");
     // Clear the input buffer
-    while (getwchar() != '\n');
+    while (getwchar() != '\n')
+      ;
   }
 
   // Clear the screen after main menu
-  wprintf(L"\033[H\033[2J");
+  wprintf(L"\033[H\033[2J\033[3J");
 
   if (choice == 2)
   {
@@ -164,21 +161,7 @@ int main(void)
   free_captures(p_captures_black_head);
   free_history(p_history_head);
 
-  // Leave the alternate screen buffer so the normal scrollback is restored
-  exit_alt_screen();
-
   return 0;
-}
-
-void init_game_state(GameState_t *state)
-{
-  state->white_king_moved = 0;
-  state->black_king_moved = 0;
-  state->white_rook_a_moved = 0;
-  state->white_rook_h_moved = 0;
-  state->black_rook_a_moved = 0;
-  state->black_rook_h_moved = 0;
-  state->en_passant_col = -1;
 }
 
 /* Function: game_loop
@@ -208,7 +191,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
   do
   {
     // Clear screen at the start of each iteration so the board is always at row 1
-    wprintf(L"\033[H\033[2J");
+    wprintf(L"\033[H\033[2J\033[3J");
 
     if ((*moves) % 2 != 0)
     {
@@ -218,7 +201,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_black_head);
       wprintf(L"\nWhite's turn\n");
       get_move(board, &p_captures_white_head, p_captures_white_head, p_captures_black_head, &p_history_head, &captured_king, moves, state);
-      wprintf(L"\033[H\033[2J");
+      wprintf(L"\033[H\033[2J\033[3J");
       print_board_white(board);
     }
     else
@@ -229,7 +212,7 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
       print_captures(p_captures_black_head);
       wprintf(L"\nBlack's turn\n");
       get_move(board, &p_captures_black_head, p_captures_white_head, p_captures_black_head, &p_history_head, &captured_king, moves, state);
-      wprintf(L"\033[H\033[2J");
+      wprintf(L"\033[H\033[2J\033[3J");
       print_board_black(board);
     }
     (*moves)++;
@@ -237,13 +220,11 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
     if (!captured_king)
     {
       sleep(1);
-      wprintf(L"\033[H\033[2J");
+      wprintf(L"\033[H\033[2J\033[3J");
     }
   } while (!captured_king);
 
-  // Exit the alternate screen so the final result appears in normal scrollback
-  exit_alt_screen();
-  wprintf(L"\033[H\033[2J");
+  wprintf(L"\033[H\033[2J\033[3J");
   wprintf(L"\nCheckmate, ");
   if ((*moves) % 2 == 0)
   {
@@ -279,6 +260,266 @@ void game_loop(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Capt
  * 7. If the move captures a king, sets the captured_king flag to end the game.
  * 8. If the move is invalid, redraws the screen and prompts the player to try again.
  */
+
+/* Function: read_single_char
+ * Reads a single character from stdin using raw mode (no echo, no line buffering).
+ * Used for simple y/n prompts to avoid mixing wscanf with raw mode read().
+ */
+char read_single_char(void)
+{
+  struct termios orig;
+  enable_raw_mode(&orig);
+  char c = 0;
+  read(STDIN_FILENO, &c, 1);
+  disable_raw_mode(&orig);
+  return c;
+}
+
+/* Function: redraw_screen
+ * Clears the screen and redraws the board, captures, turn indicator,
+ * and an optional error message. This ensures the board is always at a
+ * predictable terminal position so mouse click coordinates stay correct.
+ */
+void redraw_screen(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white, const char *error_msg)
+{
+  wprintf(L"\033[H\033[2J\033[3J");
+  if (is_white)
+  {
+    print_board_white(board);
+  }
+  else
+  {
+    print_board_black(board);
+  }
+  wprintf(L"\n");
+  print_captures(p_captures_white_head);
+  print_captures(p_captures_black_head);
+  wprintf(L"\n%ls's turn\n", is_white ? L"White" : L"Black");
+  if (error_msg)
+  {
+    wprintf(L"%s\n", error_msg);
+  }
+}
+
+/* Function: enable_mouse_tracking
+ * Enables xterm mouse click tracking using SGR extended mode.
+ */
+void enable_mouse_tracking(void)
+{
+  wprintf(L"\033[?1000h\033[?1006h");
+  fflush(stdout);
+}
+
+/* Function: disable_mouse_tracking
+ * Disables xterm mouse click tracking.
+ */
+void disable_mouse_tracking(void)
+{
+  wprintf(L"\033[?1006l\033[?1000l");
+  fflush(stdout);
+}
+
+/* Function: enable_raw_mode
+ * Switches the terminal to raw mode so individual characters and escape
+ * sequences (including mouse reports) can be read without waiting for Enter.
+ * Saves the original terminal settings into *orig so they can be restored later.
+ */
+void enable_raw_mode(struct termios *orig)
+{
+  tcgetattr(STDIN_FILENO, orig);
+  struct termios raw = *orig;
+  raw.c_lflag &= ~(ICANON | ECHO);
+  raw.c_cc[VMIN] = 1;
+  raw.c_cc[VTIME] = 0;
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+/* Function: disable_raw_mode
+ * Restores the terminal settings saved by enable_raw_mode.
+ */
+void disable_raw_mode(struct termios *orig)
+{
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, orig);
+}
+
+/* Function: read_position_from_input
+ * Reads a chess board position from the user, accepting either:
+ *   - A typed two-character coordinate (e.g. "e2") followed by Enter, OR
+ *   - A mouse click on a board square.
+ *
+ * Parameters:
+ * - pos: Output buffer (at least 3 bytes) to store the position string.
+ * - is_white_perspective: 1 if the board is displayed from white's perspective, 0 for black's.
+ *
+ * Returns 1 on success (buf is filled with a valid coordinate like "e2",
+ * or a command like "save" or "history"),
+ * or 0 if the input was invalid / could not be parsed.
+ *
+ * Board layout from white's perspective (terminal 1-indexed):
+ *   Row header line: line 1 = column labels
+ *   Border line:     line 2
+ *   Board row i=0:   line 3  (rank 8)
+ *   Border:          line 4
+ *   Board row i=1:   line 5  (rank 7)
+ *   ...
+ *   Board row i=7:   line 17 (rank 1)
+ *
+ *   Column j=0 piece char at terminal column ~4, j=1 at ~8, etc.
+ *   General: piece at column 2 + j*4 .. 4 + j*4 (the ' X ' part after '|')
+ *
+ * For black's perspective rows and columns are reversed.
+ */
+int read_position_from_input(char *buf, int buf_size, int is_white_perspective)
+{
+  struct termios orig;
+  enable_raw_mode(&orig);
+  enable_mouse_tracking();
+
+  char kbd_buf[16] = {0};
+  int kbd_len = 0;
+  int result = 0;
+
+  while (1)
+  {
+    char c;
+    if (read(STDIN_FILENO, &c, 1) != 1)
+      continue;
+
+    // Detect escape sequence (mouse report or other)
+    if (c == '\033')
+    {
+      char seq[32];
+      int seq_len = 0;
+      // Read the '[' character
+      if (read(STDIN_FILENO, &seq[seq_len], 1) == 1)
+      {
+        seq_len++;
+        if (seq[0] == '[')
+        {
+          // Read until we get 'M' or 'm' (SGR mouse) or run out of buffer
+          while (seq_len < (int)sizeof(seq) - 1)
+          {
+            if (read(STDIN_FILENO, &seq[seq_len], 1) != 1)
+              break;
+            seq_len++;
+            char last = seq[seq_len - 1];
+            if (last == 'M' || last == 'm')
+              break;
+            // Also break on other final bytes (letters) that aren't part of mouse
+            if ((last >= 'A' && last <= 'Z' && last != 'M') ||
+                (last >= 'a' && last <= 'z' && last != 'm'))
+              break;
+          }
+          seq[seq_len] = '\0';
+
+          // Parse SGR mouse: \033[<button;col;row M/m
+          // 'M' = press, 'm' = release. We act on press (M).
+          if (seq[1] == '<' && seq[seq_len - 1] == 'M')
+          {
+            int button, term_col, term_row;
+            if (sscanf(seq + 2, "%d;%d;%d", &button, &term_col, &term_row) == 3)
+            {
+              // Only handle left-click (button 0)
+              if (button == 0)
+              {
+                // Convert terminal coordinates to board indices
+                // Board content lines are at term_row = 3,5,7,...,17 (rows 0-7)
+                // term_row must be odd and >= 3 and <= 17
+                if (term_row >= 3 && term_row <= 17 && (term_row % 2 == 1))
+                {
+                  int display_row = (term_row - 3) / 2; // 0..7
+                  // Columns: the cell area for display col k is at term_col 3+k*4 to 5+k*4
+                  // (after the '|' at 2+k*4, the content is at 3+k*4, 4+k*4 (icon may be wide), then '|' at 6+k*4)
+                  // More precisely: '|' at 2, content 3-4-5 area, '|' at 6 for k=0
+                  // Actually let's look: "%d|" takes 2 chars (e.g. "8|"), then " X |" repeats
+                  // col 1: row_num, col 2: '|', col 3: ' ', col 4: piece, col 5: ' ', col 6: '|'
+                  // col 7: ' ', col 8: piece, col 9: ' ', col 10: '|', ...
+                  // So cell k (0-indexed) spans term_col 3+k*4 to 5+k*4, with piece at 4+k*4
+                  // Valid click range: term_col >= 3 and term_col <= 34
+                  if (term_col >= 3 && term_col <= 34)
+                  {
+                    int display_col = (term_col - 3) / 4; // 0..7
+                    if (display_col >= 0 && display_col <= 7)
+                    {
+                      int board_row, board_col;
+                      if (is_white_perspective)
+                      {
+                        board_row = display_row;
+                        board_col = display_col;
+                      }
+                      else
+                      {
+                        board_row = 7 - display_row;
+                        board_col = 7 - display_col;
+                      }
+
+                      // Convert board indices to chess notation
+                      buf[0] = 'a' + board_col;
+                      buf[1] = '8' - board_row;
+                      buf[2] = '\0';
+                      // Echo the coordinate next to the prompt
+                      wprintf(L"%c%c", buf[0], buf[1]);
+                      fflush(stdout);
+                      result = 1;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      // Ignore other escape sequences and continue
+      continue;
+    }
+
+    // Handle Enter key - submit typed input
+    if (c == '\n' || c == '\r')
+    {
+      if (kbd_len > 0)
+      {
+        kbd_buf[kbd_len] = '\0';
+        int copy_len = kbd_len < buf_size - 1 ? kbd_len : buf_size - 1;
+        memcpy(buf, kbd_buf, copy_len);
+        buf[copy_len] = '\0';
+        result = 1;
+        break;
+      }
+      // Empty input
+      kbd_len = 0;
+      result = 0;
+      break;
+    }
+
+    // Handle backspace
+    if (c == 127 || c == '\b')
+    {
+      if (kbd_len > 0)
+      {
+        kbd_len--;
+        // Erase the character on screen
+        wprintf(L"\b \b");
+        fflush(stdout);
+      }
+      continue;
+    }
+
+    // Accumulate regular characters for keyboard input
+    if (kbd_len < (int)sizeof(kbd_buf) - 1)
+    {
+      kbd_buf[kbd_len++] = c;
+      // Echo the character
+      wprintf(L"%c", c);
+      fflush(stdout);
+    }
+  }
+
+  disable_mouse_tracking();
+  disable_raw_mode(&orig);
+  return result;
+}
+
 void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t **pp_history_head, int *captured_king, int *moves, GameState_t *state)
 {
   char prev_pos[16];
@@ -299,15 +540,13 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
       if (strcmp(prev_pos, "save") == 0)
       {
         save_game(board, p_captures_white_head, p_captures_black_head, *pp_history_head, *moves, state);
-        disable_mouse_tracking();
-        exit_alt_screen();
         exit(0);
       }
 
       // Handle "history" command
       if (strcmp(prev_pos, "history") == 0)
       {
-        wprintf(L"\033[H\033[2J");
+        wprintf(L"\033[H\033[2J\033[3J");
         print_history(*pp_history_head);
         wprintf(L"\nPress Enter to return to the game...");
         fflush(stdout);
@@ -356,15 +595,13 @@ void get_move(Piece_t board[8][8], Captures_node_t **pp_capture_color_head, Capt
       if (strcmp(next_pos, "save") == 0)
       {
         save_game(board, p_captures_white_head, p_captures_black_head, *pp_history_head, *moves, state);
-        disable_mouse_tracking();
-        exit_alt_screen();
         exit(0);
       }
 
       // Handle "history" command
       if (strcmp(next_pos, "history") == 0)
       {
-        wprintf(L"\033[H\033[2J");
+        wprintf(L"\033[H\033[2J\033[3J");
         print_history(*pp_history_head);
         wprintf(L"\nPress Enter to return to the game...");
         fflush(stdout);
@@ -1100,285 +1337,6 @@ int find_piece_coordinates(Piece_t board[8][8], char pos[3], int *i, int *j)
   return 0;
 }
 
-/* Function: read_single_char
- * Reads a single character from stdin using raw mode (no echo, no line buffering).
- * Used for simple y/n prompts to avoid mixing wscanf with raw mode read().
- */
-char read_single_char(void)
-{
-  struct termios orig;
-  enable_raw_mode(&orig);
-  char c = 0;
-  read(STDIN_FILENO, &c, 1);
-  disable_raw_mode(&orig);
-  return c;
-}
-
-/* Function: redraw_screen
- * Clears the screen and redraws the board, captures, turn indicator,
- * and an optional error message. This ensures the board is always at a
- * predictable terminal position so mouse click coordinates stay correct.
- */
-void redraw_screen(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, int is_white, const char *error_msg)
-{
-  wprintf(L"\033[H\033[2J");
-  if (is_white)
-  {
-    print_board_white(board);
-  }
-  else
-  {
-    print_board_black(board);
-  }
-  wprintf(L"\n");
-  print_captures(p_captures_white_head);
-  print_captures(p_captures_black_head);
-  wprintf(L"\n%ls's turn\n", is_white ? L"White" : L"Black");
-  if (error_msg)
-  {
-    wprintf(L"%s\n", error_msg);
-  }
-}
-
-/* Function: enable_mouse_tracking
- * Enables xterm mouse click tracking using SGR extended mode.
- */
-void enable_mouse_tracking(void)
-{
-  wprintf(L"\033[?1000h\033[?1006h");
-  fflush(stdout);
-}
-
-/* Function: disable_mouse_tracking
- * Disables xterm mouse click tracking.
- */
-void disable_mouse_tracking(void)
-{
-  wprintf(L"\033[?1006l\033[?1000l");
-  fflush(stdout);
-}
-
-/* Function: enter_alt_screen
- * Switches to the Alternate Screen Buffer so the game renders on a
- * dedicated canvas without touching the normal scrollback history.
- */
-void enter_alt_screen(void)
-{
-  wprintf(L"\033[?1049h");
-  fflush(stdout);
-}
-
-/* Function: exit_alt_screen
- * Returns to the normal screen buffer, restoring whatever was on screen
- * before the game started.
- */
-void exit_alt_screen(void)
-{
-  wprintf(L"\033[?1049l");
-  fflush(stdout);
-}
-
-/* Function: enable_raw_mode
- * Switches the terminal to raw mode so individual characters and escape
- * sequences (including mouse reports) can be read without waiting for Enter.
- * Saves the original terminal settings into *orig so they can be restored later.
- */
-void enable_raw_mode(struct termios *orig)
-{
-  tcgetattr(STDIN_FILENO, orig);
-  struct termios raw = *orig;
-  raw.c_lflag &= ~(ICANON | ECHO);
-  raw.c_cc[VMIN] = 1;
-  raw.c_cc[VTIME] = 0;
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-}
-
-/* Function: disable_raw_mode
- * Restores the terminal settings saved by enable_raw_mode.
- */
-void disable_raw_mode(struct termios *orig)
-{
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, orig);
-}
-
-/* Function: read_position_from_input
- * Reads a chess board position from the user, accepting either:
- *   - A typed two-character coordinate (e.g. "e2") followed by Enter, OR
- *   - A mouse click on a board square.
- *
- * Parameters:
- * - pos: Output buffer (at least 3 bytes) to store the position string.
- * - is_white_perspective: 1 if the board is displayed from white's perspective, 0 for black's.
- *
- * Returns 1 on success (buf is filled with a valid coordinate like "e2",
- * or a command like "save" or "history"),
- * or 0 if the input was invalid / could not be parsed.
- *
- * Board layout from white's perspective (terminal 1-indexed):
- *   Row header line: line 1 = column labels
- *   Border line:     line 2
- *   Board row i=0:   line 3  (rank 8)
- *   Border:          line 4
- *   Board row i=1:   line 5  (rank 7)
- *   ...
- *   Board row i=7:   line 17 (rank 1)
- *
- *   Column j=0 piece char at terminal column ~4, j=1 at ~8, etc.
- *   General: piece at column 2 + j*4 .. 4 + j*4 (the ' X ' part after '|')
- *
- * For black's perspective rows and columns are reversed.
- */
-int read_position_from_input(char *buf, int buf_size, int is_white_perspective)
-{
-  struct termios orig;
-  enable_raw_mode(&orig);
-  enable_mouse_tracking();
-
-  char kbd_buf[16] = {0};
-  int kbd_len = 0;
-  int result = 0;
-
-  while (1)
-  {
-    char c;
-    if (read(STDIN_FILENO, &c, 1) != 1)
-      continue;
-
-    // Detect escape sequence (mouse report or other)
-    if (c == '\033')
-    {
-      char seq[32];
-      int seq_len = 0;
-      // Read the '[' character
-      if (read(STDIN_FILENO, &seq[seq_len], 1) == 1)
-      {
-        seq_len++;
-        if (seq[0] == '[')
-        {
-          // Read until we get 'M' or 'm' (SGR mouse) or run out of buffer
-          while (seq_len < (int)sizeof(seq) - 1)
-          {
-            if (read(STDIN_FILENO, &seq[seq_len], 1) != 1)
-              break;
-            seq_len++;
-            char last = seq[seq_len - 1];
-            if (last == 'M' || last == 'm')
-              break;
-            // Also break on other final bytes (letters) that aren't part of mouse
-            if ((last >= 'A' && last <= 'Z' && last != 'M') ||
-                (last >= 'a' && last <= 'z' && last != 'm'))
-              break;
-          }
-          seq[seq_len] = '\0';
-
-          // Parse SGR mouse: \033[<button;col;row M/m
-          // 'M' = press, 'm' = release. We act on press (M).
-          if (seq[1] == '<' && seq[seq_len - 1] == 'M')
-          {
-            int button, term_col, term_row;
-            if (sscanf(seq + 2, "%d;%d;%d", &button, &term_col, &term_row) == 3)
-            {
-              // Only handle left-click (button 0)
-              if (button == 0)
-              {
-                // Convert terminal coordinates to board indices
-                // Board content lines are at term_row = 3,5,7,...,17 (rows 0-7)
-                // term_row must be odd and >= 3 and <= 17
-                if (term_row >= 3 && term_row <= 17 && (term_row % 2 == 1))
-                {
-                  int display_row = (term_row - 3) / 2; // 0..7
-                  // Columns: the cell area for display col k is at term_col 3+k*4 to 5+k*4
-                  // (after the '|' at 2+k*4, the content is at 3+k*4, 4+k*4 (icon may be wide), then '|' at 6+k*4)
-                  // More precisely: '|' at 2, content 3-4-5 area, '|' at 6 for k=0
-                  // Actually let's look: "%d|" takes 2 chars (e.g. "8|"), then " X |" repeats
-                  // col 1: row_num, col 2: '|', col 3: ' ', col 4: piece, col 5: ' ', col 6: '|'
-                  // col 7: ' ', col 8: piece, col 9: ' ', col 10: '|', ...
-                  // So cell k (0-indexed) spans term_col 3+k*4 to 5+k*4, with piece at 4+k*4
-                  // Valid click range: term_col >= 3 and term_col <= 34
-                  if (term_col >= 3 && term_col <= 34)
-                  {
-                    int display_col = (term_col - 3) / 4; // 0..7
-                    if (display_col >= 0 && display_col <= 7)
-                    {
-                      int board_row, board_col;
-                      if (is_white_perspective)
-                      {
-                        board_row = display_row;
-                        board_col = display_col;
-                      }
-                      else
-                      {
-                        board_row = 7 - display_row;
-                        board_col = 7 - display_col;
-                      }
-
-                      // Convert board indices to chess notation
-                      buf[0] = 'a' + board_col;
-                      buf[1] = '8' - board_row;
-                      buf[2] = '\0';
-                      // Echo the coordinate next to the prompt
-                      wprintf(L"%c%c", buf[0], buf[1]);
-                      fflush(stdout);
-                      result = 1;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      // Ignore other escape sequences and continue
-      continue;
-    }
-
-    // Handle Enter key - submit typed input
-    if (c == '\n' || c == '\r')
-    {
-      if (kbd_len > 0)
-      {
-        kbd_buf[kbd_len] = '\0';
-        int copy_len = kbd_len < buf_size - 1 ? kbd_len : buf_size - 1;
-        memcpy(buf, kbd_buf, copy_len);
-        buf[copy_len] = '\0';
-        result = 1;
-        break;
-      }
-      // Empty input
-      kbd_len = 0;
-      result = 0;
-      break;
-    }
-
-    // Handle backspace
-    if (c == 127 || c == '\b')
-    {
-      if (kbd_len > 0)
-      {
-        kbd_len--;
-        // Erase the character on screen
-        wprintf(L"\b \b");
-        fflush(stdout);
-      }
-      continue;
-    }
-
-    // Accumulate regular characters for keyboard input
-    if (kbd_len < (int)sizeof(kbd_buf) - 1)
-    {
-      kbd_buf[kbd_len++] = c;
-      // Echo the character
-      wprintf(L"%c", c);
-      fflush(stdout);
-    }
-  }
-
-  disable_mouse_tracking();
-  disable_raw_mode(&orig);
-  return result;
-}
-
 /* Function: print_history
  * The print_history function prints the move history of the chess game in a formatted table.
  *
@@ -1548,6 +1506,17 @@ void clear_valid_moves(Piece_t board[8][8])
   }
 }
 
+void init_game_state(GameState_t *state)
+{
+  state->white_king_moved = 0;
+  state->black_king_moved = 0;
+  state->white_rook_a_moved = 0;
+  state->white_rook_h_moved = 0;
+  state->black_rook_a_moved = 0;
+  state->black_rook_h_moved = 0;
+  state->en_passant_col = -1;
+}
+
 /* Function: handle_promotion
  * Prompts the player to choose a piece for pawn promotion.
  * The pawn at board[row][col] is replaced with the chosen piece.
@@ -1573,7 +1542,7 @@ void handle_promotion(Piece_t board[8][8], int row, int col, Captures_node_t *p_
   }
 
   // Redraw the board to show the pawn at the promotion square
-  wprintf(L"\033[H\033[2J");
+  wprintf(L"\033[H\033[2J\033[3J");
   if (is_white)
     print_board_white(board);
   else
