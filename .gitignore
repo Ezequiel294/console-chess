@@ -4,4 +4,13 @@
 # Except for these files...
 !.gitignore
 !README.md
-!main.c
+!Makefile
+!src
+!openspec
+
+# Build output. Already covered by the /* above; listed so the intent is
+# obvious and so it stays ignored if the whitelist is ever relaxed.
+build/
+console-chess
+console-chess-debug
+game_save.bin
