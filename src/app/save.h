@@ -9,7 +9,8 @@
  * struct layout. Replaced by a text format in the app-shell-and-persistence
  * change.
  */
-int save_game(Piece_t board[8][8], Captures_node_t *p_captures_white_head, Captures_node_t *p_captures_black_head, History_node_t *p_history_head, int moves);
-int load_game(Piece_t board[8][8], Captures_node_t **p_captures_white_head, Captures_node_t **p_captures_black_head, History_node_t **p_history_head, int *moves);
+
+int save_game(const GameState *p_state);
+int load_game(GameState *p_state);
 
 #endif /* SAVE_H */

@@ -57,6 +57,7 @@ touches no terminal and no files, which is what lets it be tested without one.
 
 - **Saving**: Players are prompted every 5 moves if they want to save the game. The game state is saved to `game_save.bin`.
 - **Loading**: Select "Load Game" from the main menu when starting the program. The game will resume from where you left off.
+- **Older save files**: The file records the game's structures directly, so it is tied to their layout. Each file carries a format version, and one written by an earlier build is refused with a message rather than misread. A rejected file is left on disk untouched.
 
 ## Notes
 

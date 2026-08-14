@@ -70,6 +70,11 @@ int is_valid_move(Piece_t board[8][8], int prev_i, int prev_j, int next_i, int n
         return 1;
       }
       break;
+    case NONE:
+      // An empty square has no moves. Unreachable, since the caller only ever
+      // passes a square it has already checked is occupied, but naming the
+      // case keeps -Wswitch useful if Color ever grows a member.
+      break;
     }
     return 0;
 

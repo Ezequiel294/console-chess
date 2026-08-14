@@ -23,6 +23,7 @@ This change builds the terminal layer properly, once, so the remaining three cha
 **Input (`input.c/h`)**
 
 - Exactly one reader on stdin. Every `wscanf`, `getwchar`, and `scanf` is deleted from the input path (fixes cause #3).
+- **End of input terminates the program.** The current `get_move` spins forever when stdin reaches EOF: `wscanf` returns `EOF` without writing to its buffer, the input is judged invalid, and the `while (getwchar() != '\n')` drain loop then never sees a newline because `getwchar` returns `WEOF` on every call. Found while testing `modularize-and-build`, and left alone there because this change deletes the code that contains it — recorded here so it is not reintroduced. The read loop must treat EOF as a `Quit` event, which is also what makes the game scriptable for testing.
 - An escape-sequence parser producing typed `Event` values (`Key`, `Mouse`, `Resize`, `Paste`, `Quit`). CSI sequences are consumed through their final byte `0x40`–`0x7E`; wheel buttons 64/65 are recognized and routed rather than leaked (fixes cause #2); bracketed-paste bodies are consumed whole; a bare `ESC` is disambiguated by a ~25 ms timeout.
 - **Unknown sequences are consumed and discarded.** Game logic never sees a raw byte. This is the rule that makes injected junk structurally impossible rather than merely unlikely.
 

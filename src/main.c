@@ -8,9 +8,9 @@ Console Chess Game
 
 
 #include "core/board.h"
-#include "core/history.h"
 #include "ui/display.h"
 #include "app/game.h"
+#include "core/history.h"
 #include "app/save.h"
 #include "types.h"
 
@@ -22,11 +22,11 @@ int main(void) {
   setlocale(LC_ALL, "");
 
   int choice;
-  int moves = 1;
-  // Initialize the linked lists
-  Captures_node_t *p_captures_white_head = NULL;
-  Captures_node_t *p_captures_black_head = NULL;
-  History_node_t *p_history_head = NULL;
+
+  // main owns the game. Everything below borrows it by address, so there is
+  // never a second copy of a list head to get out of step.
+  GameState state = {0};
+  state.moves = 1;
 
   // Clear the screen
   wprintf(L"\033[H\033[2J\033[3J");
@@ -41,9 +41,8 @@ int main(void) {
   wprintf(L"• Capture pieces to win - the game ends when a King is captured!\n\n");
 
   // Initialize the board
-  Piece_t board[8][8];
-  init_board(board);
-  print_board_white(board);
+  init_board(state.board);
+  print_board_white(state.board);
 
   // Start of the Main Menu
   wprintf(L"\n1. New Game\n");
@@ -61,8 +60,8 @@ int main(void) {
   wprintf(L"\033[H\033[2J\033[3J");
 
   if (choice == 2) {
-    if (load_game(board, &p_captures_white_head, &p_captures_black_head, &p_history_head, &moves)) {
-      print_history(p_history_head);
+    if (load_game(&state)) {
+      print_history(state.p_history_head);
       wprintf(L"\n");
     } else {
       wprintf(L"Error loading game. Starting a new one.\n\n");
@@ -70,11 +69,11 @@ int main(void) {
   }
 
   // Main game loop
-  game_loop(board, p_captures_white_head, p_captures_black_head, p_history_head, &moves);
+  game_loop(&state);
 
-  free_captures(p_captures_white_head);
-  free_captures(p_captures_black_head);
-  free_history(p_history_head);
+  free_captures(state.p_captures_white_head);
+  free_captures(state.p_captures_black_head);
+  free_history(state.p_history_head);
 
   return 0;
 }
