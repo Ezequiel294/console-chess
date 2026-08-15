@@ -52,7 +52,7 @@ These close the navigation loop; build them before the other screens.
 ## 6. Status bar and commands
 
 - [ ] 6.1 Persistent status bar showing side to move, game state, and available commands
-- [ ] 6.2 Bind `u` undo, `s` save to slot, `h` history, `f` flip, `?` help, `q` quit
+- [ ] 6.2 Bind `u` undo, `s` save to slot, history (**not `h`** — it is a file name; choose a shifted key or one from `i`-`z`), `F` flip, `?` help, `q` quit. See the key-binding note in `proposal.md`.
 - [ ] 6.3 Show unavailable commands dimmed rather than omitting them
 - [ ] 6.4 Announce check in the status bar as well as on the board
 - [ ] 6.5 Allow position-neutral commands on either side's turn

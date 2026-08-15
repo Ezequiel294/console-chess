@@ -77,6 +77,33 @@ They are ways a game ends, so they belong with the other ways a game ends. Givin
 
 Each screen is independent — its own file, its own two functions, no knowledge of any other. The order below is by dependency, and the change is usable partway through: main menu and result first, then history, then settings.
 
+## Inherited from `terminal-ui-foundation` as built
+
+That change shipped some things its own tasks did not describe. What matters
+here:
+
+- **`s` and `l` are already bound**, temporarily, on the Game screen: `s` saves,
+  `l` loads but only on an untouched game. They exist so saving is not dark
+  between the two changes, and are marked TEMPORARY in `game.c`. **Delete both**
+  when the shell's save slots and resume prompt land — `l` has no successor
+  here, since resuming moves to launch.
+- **The every-five-moves prompt and the `exit(0)` on save are already gone**, so
+  task 2.7 is a check rather than a removal.
+- **The timed pause is already gone** and an explicit handoff already exists, so
+  task 9.1 is a check; 9.2 and 9.3 are still real work.
+- **`save_game` and `load_game` no longer print.** They run inside the alternate
+  screen, where a printed line lands wherever the cursor is and the next frame
+  does not know it is there. Anything replacing them must return its outcome
+  rather than report it. `load_game` currently returns a `Load_result_t`; task
+  1.1 replaces the module wholesale, so this is transitional.
+- **`load_game` already validates.** `proposal.md` says a truncated file
+  "produces a garbage board silently" — that stopped being true in
+  `modularize-and-build`: every read is checked and the state is committed only
+  after the whole file parses. The reasons to replace the format stand
+  (struct-dump portability, no human readability); this particular one does not.
+- **Key bindings in `a`-`h` collide with the move field.** See the note in
+  `proposal.md`; `h` for history still needs a new key.
+
 ## Risks / Trade-offs
 
 - **Autosave corrupting a save if interrupted mid-write** → Write to a temporary file and rename. Rename is atomic on the filesystems that matter.
