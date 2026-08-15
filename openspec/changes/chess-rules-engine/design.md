@@ -72,6 +72,26 @@ The generator emits four distinct moves to the promotion square. The UI picks am
 
 `app-shell-and-persistence` is the consumer, but the tests in *this* change need to express positions as one-line fixtures. Building FEN later would mean writing a throwaway fixture format now.
 
+## Inherited from `terminal-ui-foundation` as built
+
+This layer stays independent of the terminal, so almost nothing carries over.
+Two things do:
+
+- **The promotion overlay has what it needs.** The screen stack ships with an
+  `opaque` flag and `CMD_PUSH`/`CMD_POP`, screens are handed their region every
+  frame, and only the top screen receives input — so a promotion picker composites
+  over the board and returns to it with the board's state intact.
+- **The call sites this change replaces are in one place.** `is_valid_move`,
+  `update_board`, `update_captures` and `update_history` are now reached only
+  from `submit()` and `finish_move()` in `src/app/game.c`, and the game-over test
+  is the king-capture check in `finish_move()`. Deleting `rules.c` (task 5.6) and
+  swapping `GameState` for `Position` touches those two functions and nothing
+  else in the UI.
+
+Note that the Game screen keeps its own selection and last-move state separately
+from the position, which is the separation task 3.1 of `mouse-and-highlights`
+also depends on: nothing about the interface leaks into what this layer models.
+
 ## Risks / Trade-offs
 
 - **Subtle generation bug reaching production** → Perft. This risk is the entire justification for the no-I/O constraint.

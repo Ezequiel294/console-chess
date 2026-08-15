@@ -109,6 +109,75 @@ Its purpose was to let a player see their move before the board flips. Three mec
 
 Board at measured cell width, plus a side panel, plus a status bar. Roughly 62×24 at single-width glyphs, wider at double. Computed rather than hardcoded, since it depends on the probe result.
 
+## Decided while building
+
+Five things the plan did not anticipate. Recorded here because later changes
+inherit them, and because a comment in a source file is not where the next
+change looks.
+
+### Flip is `F`, not `f`
+
+`f` is a file name. With move entry as a typed field, a binding on `f` swallows
+the first keystroke of every move from the f-file, making that file unreachable.
+Flip moved to Shift-`F`; the lowercase letters `a`-`h` all belong to the move
+field.
+
+**This applies to every later key binding.** `app-shell-and-persistence` plans
+`h` for the history screen, and `h` is a file too. Any single-key command in the
+range `a`-`h` has the same collision, and the fix is the same: shift it, or pick
+a letter from `i`-`z`.
+
+### Squares have no colour of their own
+
+A checkerboard of filled cells reads as a wall of colour in a terminal and
+fights whatever theme the terminal already has. Squares are left transparent and
+background is spent only on meaning: a dark green tint for the last move, a dark
+olive one for the selected piece.
+
+`mouse-and-highlights` adds three more tints on top of these. Removing the
+checkerboard is what leaves them room to be distinguishable.
+
+Deep unsaturated shades, not bright ones, so a tint reads as the square having
+been tinted rather than a block laid over the board — and dark enough that the
+piece colours work on top of them, which is why no piece needs a special colour
+on a highlighted square.
+
+### Save and load survive, temporarily
+
+Dropping the menu drops the only way to reach saving, which would leave the
+capability dark between this change and `app-shell-and-persistence`. Two
+bindings stand in: `s` saves, `l` loads. Both are marked TEMPORARY in
+`game.c` and are to be deleted by that change.
+
+`l` is offered only on an untouched game, and `s` only on a touched one. They
+are never available at once: a load replaces everything, and a save over an
+opening position destroys a real save for nothing. The status bar shows whichever
+is live, so the keys document their own window.
+
+`save_game` and `load_game` no longer print. They are called from inside the
+alternate screen now, where a printed line lands wherever the cursor happens to
+be and the frame that follows has no idea it is there. `load_game` returns a
+`Load_result_t` so the screen can say *which* failure it was.
+
+### Unknown sequences means OSC and DCS too
+
+The parser as designed handled CSI and SS3. A terminal answering a colour or
+title query sends OSC, whose payload is ordinary printable text — parsed as
+anything but a unit, it arrives as a burst of keystrokes. Found by a test firing
+`\033]11;rgb:00/00/00\033\\` at the game, which typed a `g` into the move field.
+
+OSC, DCS, SOS, PM and APC are now consumed through their string terminator. The
+requirement was always "consume every escape sequence in full"; only the design
+sketch was short.
+
+### Board geometry is not fully exposed by the layout
+
+`Layout` gives the board's rect and the square size, but the grid's origin
+*inside* that rect, and the one-cell rule between squares, are still locals in
+`draw_board`. `mouse-and-highlights` needs them for hit-testing and its design
+says never to compute board geometry in two places — so that change should lift
+them into `Layout` first rather than re-deriving them in `interaction.c`.
+
 ## Risks / Trade-offs
 
 - **A terminal disables alternate scroll differently, or ignores `?1007l`** → Test on Terminal.app, iTerm2, and at least one Linux terminal before considering this change done. If one ignores it, the fallback is to enable mouse tracking early so the wheel arrives as a mouse event we can consume.

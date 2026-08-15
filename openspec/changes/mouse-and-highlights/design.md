@@ -71,6 +71,43 @@ Tints come from a small palette. On terminals without colour, each state falls b
 
 The game screen receives wheel events and discards them deliberately, with a comment. They were the source of the injected junk in the previous attempt. `move-history-view` in `app-shell-and-persistence` will consume the same events as scrolling — same parser, different consumer, which is the sign the layering is right.
 
+## Inherited from `terminal-ui-foundation` as built
+
+That change shipped some things its own tasks did not describe. What matters
+here:
+
+- **The restore path already disables every mouse mode** (`?1000l`, `?1002l`,
+  `?1003l`, `?1006l`), defensively, before this change turns any of them on. So
+  task 1.2 is a verification, not an addition — only the *entry* sequence in
+  `term_enter` needs `?1000h` and `?1006h` added.
+- **The parser already decodes SGR mouse reports in full**, including buttons
+  64/65 as wheel events with a direction. `Event_t` carries kind, button,
+  zero-based column and row, and wheel direction. Nothing in `input.c` needs
+  changing; the events simply have no consumer yet.
+- **Mouse and paste events already reach the Game screen and are ignored there**
+  with a comment. Task 7.1 is a matter of making that deliberate discard
+  explicit rather than adding it.
+- **Board geometry is not fully exposed by `Layout`.** It carries the board's
+  rect and `square_w`/`square_h`, but the grid's origin inside that rect and the
+  one-cell rule between squares are still locals in `draw_board`. Task 2.2 says
+  one source, never recomputed — so **lift them into `Layout` first**, and have
+  `draw_board` read them from there, rather than re-deriving them in
+  `interaction.c`. Re-deriving is exactly the drift this change's Risks warn
+  about.
+- **Squares have no background of their own.** The checkerboard was dropped: a
+  wall of colour reads badly in a terminal and fights the user's theme. Only
+  meaning gets a background. Two of the five states in the marks table are
+  therefore already implemented — last move is xterm `22`, selected is `58`,
+  both deliberately deep and unsaturated so a tint reads as a tint. Task 6.1
+  should absorb these two into the single palette rather than introduce a
+  second set. The absence of a checkerboard is what leaves the remaining three
+  tints room to be distinguishable.
+- **Flip is `F`, not `f`.** `a`-`h` are file names and belong to the move field,
+  and this change keeps typed entry working, so that constraint holds here too.
+- **`s` and `l` are temporarily bound** on the Game screen for saving and
+  loading; they belong to `app-shell-and-persistence` and are marked TEMPORARY.
+  Leave them alone.
+
 ## Risks / Trade-offs
 
 - **Hit-testing drifts from what is drawn** → Derive both from one layout structure computed once per frame. Never compute board geometry in two places.

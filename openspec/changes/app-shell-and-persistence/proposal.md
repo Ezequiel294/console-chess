@@ -44,10 +44,17 @@ Single-key bindings shown in a persistent status bar, replacing all prompting:
 |---|---|
 | `u` | undo — nearly free, `unmake` already exists in `chess-rules-engine` |
 | `s` | save to a slot |
-| `h` | history screen |
-| `f` | flip board orientation |
+| `h` → **needs a new key** | history screen |
+| `F` | flip board orientation |
 | `?` | help overlay |
 | `q` | quit (confirm overlay; autosave means nothing is lost) |
+
+**`a`-`h` are file names and belong to the move field.** Typed coordinate entry
+survives this change and `mouse-and-highlights`, so a single-key command in that
+range swallows the first keystroke of every move from that file and makes the
+file unreachable. `terminal-ui-foundation` hit this with `f` and moved flip to
+Shift-`F`; `h` for history has the same collision and is still unresolved — pick
+a shifted key or one from `i`-`z` when building this change.
 
 **Resignation and draw offers** — `chess-rules-engine` covers the draws the rules force. This adds the two a player chooses: resign, and offer/accept a draw.
 

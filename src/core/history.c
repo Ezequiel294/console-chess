@@ -2,7 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
+#include <stdio.h>
 
 /* Function: update_captures
  * The update_captures function adds a captured piece to the linked list of captures.
@@ -20,7 +20,7 @@
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece) {
   Captures_node_t *p_node = (Captures_node_t *)malloc(sizeof(Captures_node_t));
   if (p_node == NULL) {
-    wprintf(L"Memory allocation failed.\n");
+    fprintf(stderr, "Memory allocation failed.\n");
     exit(1);
   }
 
@@ -55,7 +55,7 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece) {
 void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]) {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
   if (p_new_node == NULL) {
-    wprintf(L"Memory allocation failed.\n");
+    fprintf(stderr, "Memory allocation failed.\n");
     exit(1);
   }
 

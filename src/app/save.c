@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
+
 
 /* The file is a raw dump of the in-memory structs, so its layout is whatever
  * Piece_t and History_node_t happen to be. A magic number and a version make
@@ -33,18 +33,21 @@
  * - p_state: The game to write. Not modified.
  *
  * The function performs the following steps:
- * 1. Opens a binary file for writing. If the file cannot be opened, prints an error message and returns 0.
+ * 1. Opens a binary file for writing. If the file cannot be opened, returns 0.
  * 2. Writes the magic number and format version.
  * 3. Writes the number of moves and the board state.
  * 4. Writes the captured white pieces, then the captured black pieces, each followed by an end marker.
  * 5. Writes the move history, followed by an end marker.
- * 6. Checks the stream for errors, closes the file and prints a success message.
+ * 6. Checks the stream for errors and closes the file.
  * 7. Returns 1 to indicate successful saving.
  */
 int save_game(const GameState *p_state) {
+  /* Nothing here reports to the terminal. save_game is now called from inside
+   * the alternate screen, where a stray line of text lands wherever the cursor
+   * happens to be and the next frame's diff has no idea it is there. The return
+   * value carries the outcome and the caller draws it into a frame. */
   FILE *file = fopen(SAVE_PATH, "wb");
   if (file == NULL) {
-    wprintf(L"Error opening file for saving.\n");
     return 0;
   }
 
@@ -94,11 +97,8 @@ int save_game(const GameState *p_state) {
 
   // One check covers every write above: the stream latches its error flag.
   if (ferror(file) || fclose(file) != 0) {
-    wprintf(L"Error writing save file. The game was not saved.\n");
     return 0;
   }
-
-  wprintf(L"Game saved successfully.\n");
 
   return 1;
 }
@@ -110,21 +110,22 @@ int save_game(const GameState *p_state) {
  * - p_state: The game to load into. Overwritten on success, untouched on failure.
  *
  * The function performs the following steps:
- * 1. Opens a binary file for reading. If the file cannot be opened, prints an error message and returns 0.
+ * 1. Opens a binary file for reading. If the file cannot be opened, returns LOAD_NO_FILE.
  * 2. Checks the magic number and format version, refusing anything it does not recognise.
  * 3. Reads the move count and the board state.
  * 4. Reads the captured white pieces, the captured black pieces and the move history, rebuilding each linked list.
- * 5. Commits the result to p_state and returns 1.
+ * 5. Commits the result to p_state and returns LOAD_OK.
  *
  * Every read is checked. A file that ends early is rejected rather than
  * half-loaded: the work happens on a local GameState, and p_state is only
  * written once the whole file has been read successfully.
  */
-int load_game(GameState *p_state, char *p_version_out) {
+Load_result_t load_game(GameState *p_state, char *p_version_out) {
+  /* Like save_game, this reports nothing: the reason is the return value, and
+   * the caller draws it into a frame. */
   FILE *file = fopen(SAVE_PATH, "rb");
   if (file == NULL) {
-    wprintf(L"Error opening file for loading.\n");
-    return 0;
+    return LOAD_NO_FILE;
   }
 
   // Check the magic number and the version before trusting any struct layout
@@ -132,8 +133,7 @@ int load_game(GameState *p_state, char *p_version_out) {
   uint32_t version = 0;
   if (fread(magic, 1, SAVE_MAGIC_LEN, file) != SAVE_MAGIC_LEN || memcmp(magic, SAVE_MAGIC, SAVE_MAGIC_LEN) != 0 || fread(&version, sizeof(version), 1, file) != 1 || version != SAVE_VERSION) {
     fclose(file);
-    wprintf(L"Save file was written by an older version and cannot be loaded.\n");
-    return 0;
+    return LOAD_WRONG_FORMAT;
   }
 
   GameState loaded = {0};
@@ -236,16 +236,14 @@ int load_game(GameState *p_state, char *p_version_out) {
   if (p_version_out != NULL) {
     memcpy(p_version_out, version_field, SAVE_VERSION_LEN);
   }
-  wprintf(L"Game loaded successfully.\n");
 
-  return 1;
+  return LOAD_OK;
 
 truncated:
   fclose(file);
   free_captures(loaded.p_captures_white_head);
   free_captures(loaded.p_captures_black_head);
   free_history(loaded.p_history_head);
-  wprintf(L"Save file is incomplete or corrupted and cannot be loaded.\n");
 
-  return 0;
+  return LOAD_CORRUPT;
 }
