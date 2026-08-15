@@ -5,9 +5,12 @@
 
 /* Persistence to game_save.bin.
  *
- * A raw dump of the in-memory structs, so the file format is tied to the
- * struct layout. Replaced by a text format in the app-shell-and-persistence
- * change.
+ * The position is stored as FEN, since castling rights and the en passant
+ * square have no representation in the old raw board dump — a save from
+ * before this change cannot express them and is refused outright, not
+ * reinterpreted. Captures and move history remain a raw dump of their linked
+ * lists, as before. Replaced by a fuller text format in the
+ * app-shell-and-persistence change.
  */
 
 /* Size of the header's fixed-size, NUL-terminated build-version field.

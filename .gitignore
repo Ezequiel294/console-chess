@@ -7,6 +7,7 @@
 !Makefile
 !VERSION
 !src
+!tests
 !openspec
 
 # Build output. Already covered by the /* above; listed so the intent is
@@ -14,4 +15,5 @@
 build/
 console-chess
 console-chess-debug
+console-chess-test
 game_save.bin

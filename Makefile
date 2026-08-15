@@ -3,6 +3,8 @@
 # make          build ./console-chess
 # make run      build and play
 # make debug    build ./console-chess-debug with sanitizers and no optimisation
+# make test     build and run the rules-engine test suite, perft to depth 4
+# make test-full  the same suite, perft to depth 5 and above
 # make clean    remove all build output
 
 CC       ?= cc
@@ -63,7 +65,7 @@ SRC      := $(wildcard $(SRCDIR)/*.c $(SRCDIR)/*/*.c)
 OBJ      := $(SRC:%.c=$(BUILDDIR)/%.o)
 DEP      := $(OBJ:.o=.d)
 
-.PHONY: all run debug clean
+.PHONY: all run debug clean test test-full
 
 all: $(BIN)
 
@@ -85,7 +87,33 @@ debug:
 	        LDFLAGS='-fsanitize=address,undefined' \
 	        all
 
+# The test suite links the rules-engine layer (src/core) directly against
+# tests/*.c and nothing from src/app or src/ui, since the rules layer performs
+# no I/O and needs no terminal to test.
+TEST_BIN      := console-chess-test
+TEST_BUILDDIR := build/test
+TEST_SRC      := $(wildcard tests/*.c $(SRCDIR)/core/*.c)
+TEST_OBJ      := $(TEST_SRC:%.c=$(TEST_BUILDDIR)/%.o)
+TEST_DEP      := $(TEST_OBJ:.o=.d)
+
+$(TEST_BUILDDIR)/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(STD) $(WARN) $(INCLUDE) $(DEPFLAGS) -c $< -o $@
+
+$(TEST_BIN): $(TEST_OBJ)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+# Depth 4 from the initial position is ~200k nodes, well under a second.
+# Depth 5 and above is a few seconds unoptimised — behind test-full so the
+# default target stays fast enough to run on every change.
+test: $(TEST_BIN)
+	./$(TEST_BIN)
+
+test-full: $(TEST_BIN)
+	./$(TEST_BIN) --full
+
 clean:
-	rm -rf build console-chess console-chess-debug
+	rm -rf build console-chess console-chess-debug $(TEST_BIN)
 
 -include $(DEP)
+-include $(TEST_DEP)

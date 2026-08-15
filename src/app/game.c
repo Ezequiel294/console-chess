@@ -1,9 +1,13 @@
 #include "app/game.h"
 
+#include "app/promotion.h"
 #include "app/save.h"
 #include "core/board.h"
 #include "core/history.h"
-#include "core/rules.h"
+#include "core/movegen.h"
+#include "core/notation.h"
+#include "core/outcome.h"
+#include "core/position.h"
 #include "ui/glyphs.h"
 #include "ui/layout.h"
 #include "ui/render.h"
@@ -62,9 +66,19 @@ typedef struct {
 
 static Game_t g_game;
 
-static Color side_to_move(const Game_t *g) {
-  return (g->state->moves % 2 != 0) ? WHITE : BLACK;
-}
+/* The move a promotion overlay is waiting on: everything finish_move() needs
+ * once the player answers which piece to become. Global for the same reason
+ * g_game is: the app owns exactly one game screen and, transitively, at most
+ * one promotion overlay at a time. */
+typedef struct {
+  Game_t *game;
+  Move choices[4];
+  int count;
+} Promotion_request_t;
+
+static Promotion_request_t g_promo_request;
+
+static Color side_to_move(const Game_t *g) { return g->state->position.side_to_move; }
 
 static void clear_entry(Game_t *g) {
   g->typed[0] = '\0';
@@ -83,9 +97,7 @@ static void clear_entry(Game_t *g) {
  */
 
 /* A game with nothing in it yet: the opening position, no moves played. */
-static int game_is_untouched(const Game_t *g) {
-  return g->state->moves == 1 && g->state->p_history_head == NULL;
-}
+static int game_is_untouched(const Game_t *g) { return g->state->p_history_head == NULL; }
 
 /* Loading is offered only on an untouched game.
  *
@@ -144,6 +156,7 @@ static void load_into(Game_t *g) {
   Captures_node_t *old_white = g->state->p_captures_white_head;
   Captures_node_t *old_black = g->state->p_captures_black_head;
   History_node_t *old_history = g->state->p_history_head;
+  Hash_node_t *old_hashes = g->state->p_hash_history_head;
 
   Load_result_t result = load_game(g->state, NULL);
   snprintf(g->message, sizeof(g->message), "%s", load_message(result));
@@ -154,9 +167,16 @@ static void load_into(Game_t *g) {
   free_captures(old_white);
   free_captures(old_black);
   free_history(old_history);
+  free_hash_history(old_hashes);
+  /* A FEN save carries no move history, so repetition is tracked fresh from
+   * the loaded position: any repetition claim from before the save is lost,
+   * a limitation of this interim format. */
+  g->state->p_hash_history_head = NULL;
+  push_hash(&g->state->p_hash_history_head, g->state->position.hash);
 
   clear_entry(g);
   g->awaiting_handoff = 0;
+  g->game_over = 0;
   g->flipped = (side_to_move(g) == BLACK);
   highlight_last_move(g);
 }
@@ -233,7 +253,7 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
       draw_glyph(r, x, y, 0x2502u, 1, C_RULE, COLOR_DEFAULT, ATTR_NONE);
 
       int bg = square_bg(g, i, j);
-      Piece_t piece = g->state->board[i][j];
+      Piece_t piece = g->state->position.board[i][j];
       int fg = piece_fg(piece.color);
 
       for (int k = 0; k < sq_w; k++) {
@@ -305,20 +325,23 @@ static void draw_panel(const Game_t *g, Rect r) {
 
 static void draw_status(const Game_t *g, Rect r) {
   char line[160];
+  char mover_label[24];
   const char *mover = (side_to_move(g) == WHITE) ? "White" : "Black";
+  int checked = !g->game_over && in_check(&g->state->position, side_to_move(g));
+  snprintf(mover_label, sizeof(mover_label), "%s%s", mover, checked ? " (check)" : "");
 
   draw_hline(r, 0, 0, r.w, 0x2500u, C_RULE, COLOR_DEFAULT, ATTR_NONE);
 
   if (g->game_over) {
     snprintf(line, sizeof(line), "%s", g->message);
   } else if (g->awaiting_handoff) {
-    snprintf(line, sizeof(line), "%s to move — press SPACE", mover);
+    snprintf(line, sizeof(line), "%s to move — press SPACE", mover_label);
   } else if (g->sel_i >= 0) {
     char from[3];
     index_to_square(g->sel_i, g->sel_j, from);
-    snprintf(line, sizeof(line), "%s: %s → %-2s_   %s", mover, from, g->typed, g->message);
+    snprintf(line, sizeof(line), "%s: %s → %-2s_   %s", mover_label, from, g->typed, g->message);
   } else {
-    snprintf(line, sizeof(line), "%s: %-2s_   %s", mover, g->typed, g->message);
+    snprintf(line, sizeof(line), "%s: %-2s_   %s", mover_label, g->typed, g->message);
   }
   draw_text(r, 0, 1, line, COLOR_DEFAULT, COLOR_DEFAULT, ATTR_NONE);
 
@@ -359,44 +382,82 @@ static void game_render(void *ctx, Rect r) {
 
 /* --- Turn flow ---------------------------------------------------------- */
 
-static void finish_move(Game_t *g, int from_i, int from_j, int to_i, int to_j,
-                        const char *from, const char *to) {
-  Captures_node_t **captures = (side_to_move(g) == WHITE)
-                                   ? &g->state->p_captures_white_head
-                                   : &g->state->p_captures_black_head;
+static const char *outcome_message(Outcome_t oc) {
+  switch (oc.reason) {
+  case OUTCOME_CHECKMATE:
+    return (oc.winner == WHITE) ? "Checkmate — White wins!" : "Checkmate — Black wins!";
+  case OUTCOME_STALEMATE:
+    return "Draw — stalemate.";
+  case OUTCOME_DRAW_FIFTY_MOVE:
+    return "Draw — fifty moves without a capture or pawn move.";
+  case OUTCOME_DRAW_INSUFFICIENT_MATERIAL:
+    return "Draw — insufficient material.";
+  case OUTCOME_DRAW_REPETITION:
+    return "Draw — threefold repetition.";
+  case OUTCOME_IN_PROGRESS:
+    break;
+  }
+  return "";
+}
 
-  int captured_king = 0;
-  if (g->state->board[to_i][to_j].type != FREE) {
-    update_captures(captures, g->state->board[to_i][to_j]);
-    if (g->state->board[to_i][to_j].type == KING) {
-      captured_king = 1;
-    }
+/* Applies a legal move chosen by the player — directly from submit(), or from
+ * the promotion overlay once it knows which piece — and settles whatever
+ * follows: captures, history, check-repetition bookkeeping, and the outcome
+ * that decides whether the game just ended. */
+static void finish_move(Game_t *g, Move move) {
+  Color mover = side_to_move(g);
+  Captures_node_t **captures = (mover == WHITE) ? &g->state->p_captures_white_head
+                                                 : &g->state->p_captures_black_head;
+
+  if (move.captured != FREE) {
+    Color captured_color = (mover == WHITE) ? BLACK : WHITE;
+    update_captures(captures, (Piece_t){.color = captured_color, .type = move.captured});
   }
 
-  update_board(g->state->board, from_i, from_j, to_i, to_j);
-  update_history(&g->state->p_history_head, (char *)from, (char *)to);
+  char from[3];
+  char to[3];
+  index_to_square(move.from_i, move.from_j, from);
+  index_to_square(move.to_i, move.to_j, to);
 
-  g->last_from_i = from_i;
-  g->last_from_j = from_j;
-  g->last_to_i = to_i;
-  g->last_to_j = to_j;
+  make(&g->state->position, move);
+  update_history(&g->state->p_history_head, from, to);
 
-  g->state->moves++;
+  g->last_from_i = move.from_i;
+  g->last_from_j = move.from_j;
+  g->last_to_i = move.to_i;
+  g->last_to_j = move.to_j;
+
   clear_entry(g);
   g->message[0] = '\0';
 
-  if (captured_king) {
+  /* hash_history excludes the position just reached, per outcome()'s
+   * contract, so the lookup happens before this move's hash is pushed. */
+  int hist_len = hash_history_length(g->state->p_hash_history_head);
+  uint64_t hashes[hist_len > 0 ? hist_len : 1];
+  hash_history_to_array(g->state->p_hash_history_head, hashes);
+  Outcome_t oc = outcome(&g->state->position, hashes, hist_len);
+
+  push_hash(&g->state->p_hash_history_head, g->state->position.hash);
+
+  if (oc.reason != OUTCOME_IN_PROGRESS) {
     g->game_over = 1;
-    /* moves has already advanced past the capturing move, so the side that
-     * played it is the one not to move. */
-    snprintf(g->message, sizeof(g->message), "Checkmate — %s wins!",
-             (g->state->moves % 2 == 0) ? "White" : "Black");
+    snprintf(g->message, sizeof(g->message), "%s", outcome_message(oc));
   } else {
     g->awaiting_handoff = 1;
   }
 }
 
-static void submit(Game_t *g) {
+static void on_promotion_choice(void *ctx, Piece_type_t choice) {
+  Promotion_request_t *req = (Promotion_request_t *)ctx;
+  for (int k = 0; k < req->count; k++) {
+    if (req->choices[k].promotion == choice) {
+      finish_move(req->game, req->choices[k]);
+      return;
+    }
+  }
+}
+
+static void submit(Game_t *g, Cmd_t *cmd) {
   int i, j;
 
   if (g->typed_len != 2 || !square_to_index(g->typed, &i, &j)) {
@@ -405,7 +466,8 @@ static void submit(Game_t *g) {
   }
 
   if (g->sel_i < 0) {
-    if (g->state->board[i][j].type == FREE || g->state->board[i][j].color != side_to_move(g)) {
+    Piece_t piece = g->state->position.board[i][j];
+    if (piece.type == FREE || piece.color != side_to_move(g)) {
       snprintf(g->message, sizeof(g->message), "Pick one of your own pieces.");
       g->typed[0] = '\0';
       g->typed_len = 0;
@@ -419,18 +481,38 @@ static void submit(Game_t *g) {
     return;
   }
 
-  if (!is_valid_move(g->state->board, g->sel_i, g->sel_j, i, j)) {
+  MoveList legal;
+  generate_legal_moves_from(&g->state->position, g->sel_i, g->sel_j, &legal);
+
+  Move matches[4];
+  int match_count = 0;
+  for (int k = 0; k < legal.count && match_count < 4; k++) {
+    if (legal.moves[k].to_i == i && legal.moves[k].to_j == j) {
+      matches[match_count++] = legal.moves[k];
+    }
+  }
+
+  if (match_count == 0) {
     snprintf(g->message, sizeof(g->message), "That piece cannot move there.");
     g->typed[0] = '\0';
     g->typed_len = 0;
     return;
   }
 
-  char from[3];
-  char to[3];
-  index_to_square(g->sel_i, g->sel_j, from);
-  index_to_square(i, j, to);
-  finish_move(g, g->sel_i, g->sel_j, i, j, from, to);
+  if (match_count == 1) {
+    finish_move(g, matches[0]);
+    return;
+  }
+
+  /* More than one match happens only for promotion, one candidate per piece
+   * choice: ask which, and finish the move once the overlay answers. */
+  g_promo_request.game = g;
+  g_promo_request.count = match_count;
+  for (int k = 0; k < match_count; k++) {
+    g_promo_request.choices[k] = matches[k];
+  }
+  *cmd = (Cmd_t){CMD_PUSH, promotion_screen(side_to_move(g), on_promotion_choice,
+                                             &g_promo_request)};
 }
 
 static void type_char(Game_t *g, uint32_t ch) {
@@ -507,9 +589,11 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
   }
 
   switch (ev->key.name) {
-  case KEY_ENTER:
-    submit(g);
-    break;
+  case KEY_ENTER: {
+    Cmd_t cmd = CMD_STAY;
+    submit(g, &cmd);
+    return cmd;
+  }
   case KEY_ESCAPE:
     clear_entry(g);
     g->message[0] = '\0';
