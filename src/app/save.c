@@ -1,6 +1,8 @@
 #include "app/save.h"
 
 #include "core/history.h"
+#include "core/notation.h"
+#include "core/position.h"
 #include "version.h"
 
 #include <stdint.h>
@@ -9,22 +11,26 @@
 #include <string.h>
 
 
-/* The file is a raw dump of the in-memory structs, so its layout is whatever
- * Piece_t and History_node_t happen to be. A magic number and a version make
- * that dependency explicit: when the structs change, the version changes, and
- * files written by the old layout are refused instead of being reinterpreted
- * as the new one.
+/* The file is mostly a raw dump of the in-memory structs, so its layout is
+ * whatever Piece_t and History_node_t happen to be. A magic number and a
+ * version make that dependency explicit: when the structs change, the
+ * version changes, and files written by the old layout are refused instead
+ * of being reinterpreted as the new one.
  *
  * Version 1 is the original unversioned format, which had no header at all and
  * so fails the magic check. Version 2 is the layout after Piece_t lost its
  * icon and position fields. Version 3 added the writing build's version as a
  * fixed-size field after the format version (see project-versioning); the
- * struct layout that follows the header did not change.
+ * struct layout that follows the header did not change. Version 4 replaced
+ * the raw board-plus-move-count dump with a fixed-size FEN field: castling
+ * rights and the en passant square have no representation in the old layout,
+ * so a version-3 file cannot be reinterpreted and is refused like any other
+ * unrecognised version.
  */
 #define SAVE_PATH "game_save.bin"
 #define SAVE_MAGIC "CCHS"
 #define SAVE_MAGIC_LEN 4
-#define SAVE_VERSION 3u
+#define SAVE_VERSION 4u
 
 /* Function: save_game
  * The save_game function saves the current state of a chess game to a binary file.
@@ -35,7 +41,7 @@
  * The function performs the following steps:
  * 1. Opens a binary file for writing. If the file cannot be opened, returns 0.
  * 2. Writes the magic number and format version.
- * 3. Writes the number of moves and the board state.
+ * 3. Writes the position as a fixed-size FEN field.
  * 4. Writes the captured white pieces, then the captured black pieces, each followed by an end marker.
  * 5. Writes the move history, followed by an end marker.
  * 6. Checks the stream for errors and closes the file.
@@ -63,11 +69,11 @@ int save_game(const GameState *p_state) {
   strncpy(version_field, chess_version(), SAVE_VERSION_LEN - 1);
   fwrite(version_field, 1, SAVE_VERSION_LEN, file);
 
-  // Save the number of moves
-  fwrite(&p_state->moves, sizeof(int), 1, file);
-
-  // Save the board
-  fwrite(p_state->board, sizeof(Piece_t), 64, file);
+  // Save the position as a fixed-size, zero-padded FEN field, so reading it
+  // back needs no allocation and no delimiter search.
+  char fen_field[FEN_MAX_LEN] = {0};
+  fen_write(&p_state->position, fen_field);
+  fwrite(fen_field, 1, FEN_MAX_LEN, file);
 
   // Save the captures for white
   const Captures_node_t *current_capture = p_state->p_captures_white_head;
@@ -112,7 +118,7 @@ int save_game(const GameState *p_state) {
  * The function performs the following steps:
  * 1. Opens a binary file for reading. If the file cannot be opened, returns LOAD_NO_FILE.
  * 2. Checks the magic number and format version, refusing anything it does not recognise.
- * 3. Reads the move count and the board state.
+ * 3. Reads the position from its fixed-size FEN field.
  * 4. Reads the captured white pieces, the captured black pieces and the move history, rebuilding each linked list.
  * 5. Commits the result to p_state and returns LOAD_OK.
  *
@@ -152,13 +158,15 @@ Load_result_t load_game(GameState *p_state, char *p_version_out) {
   }
   version_field[SAVE_VERSION_LEN - 1] = '\0';
 
-  // Load the number of moves
-  if (fread(&loaded.moves, sizeof(int), 1, file) != 1) {
+  // Load the position from its fixed-size FEN field. A short read is
+  // truncation; a full read that fen_parse rejects is corruption of a
+  // different kind, but both mean the file cannot be trusted.
+  char fen_field[FEN_MAX_LEN];
+  if (fread(fen_field, 1, FEN_MAX_LEN, file) != FEN_MAX_LEN) {
     goto truncated;
   }
-
-  // Load the board
-  if (fread(loaded.board, sizeof(Piece_t), 64, file) != 64) {
+  fen_field[FEN_MAX_LEN - 1] = '\0';
+  if (!fen_parse(fen_field, &loaded.position)) {
     goto truncated;
   }
 

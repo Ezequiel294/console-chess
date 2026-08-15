@@ -10,8 +10,8 @@ Console Chess Game
 #include "app/app.h"
 #include "app/game.h"
 #include "app/toosmall.h"
-#include "core/board.h"
 #include "core/history.h"
+#include "core/position.h"
 #include "types.h"
 #include "ui/glyphs.h"
 #include "ui/input.h"
@@ -92,8 +92,8 @@ int main(int argc, char **argv) {
   // main owns the game. The screen borrows it by address, so there is never a
   // second copy of a list head to get out of step.
   GameState state = {0};
-  state.moves = 1;
-  init_board(state.board);
+  position_init(&state.position);
+  push_hash(&state.p_hash_history_head, state.position.hash);
 
   app_set_too_small_screen(toosmall_screen());
   int status = app_run(game_screen(&state));
@@ -101,6 +101,7 @@ int main(int argc, char **argv) {
   free_captures(state.p_captures_white_head);
   free_captures(state.p_captures_black_head);
   free_history(state.p_history_head);
+  free_hash_history(state.p_hash_history_head);
 
   input_shutdown();
   render_shutdown();
