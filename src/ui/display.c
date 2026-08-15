@@ -1,24 +1,8 @@
 #include "ui/display.h"
 
+#include "ui/glyphs.h"
+
 #include <wchar.h>
-
-/* The one place a piece is turned into something a terminal can show.
- *
- * Indexed [color][type]. FREE is present in both rows so that an empty square
- * needs no special case at the call sites.
- */
-static const wchar_t PIECE_GLYPHS[2][7] = {
-    [WHITE] = {[PAWN] = L'󰡙', [ROOK] = L'󰡛', [KNIGHT] = L'󰡘', [BISHOP] = L'󰡜', [QUEEN] = L'󰡚', [KING] = L'󰡗', [FREE] = L' '},
-    [BLACK] = {[PAWN] = L'', [ROOK] = L'', [KNIGHT] = L'', [BISHOP] = L'', [QUEEN] = L'', [KING] = L'', [FREE] = L' '},
-};
-
-wchar_t piece_glyph(Piece_type_t type, Color color) {
-  // NONE is the color of an empty square, and the only other Color there is.
-  if (color != WHITE && color != BLACK) {
-    return L' ';
-  }
-  return PIECE_GLYPHS[color][type];
-}
 
 /* Function: print_board_white
  * The print_board_white function prints the chess board from the white player's perspective.
@@ -40,7 +24,7 @@ void print_board_white(Piece_t board[8][8]) {
   for (int i = 0; i < 8; i++) {
     wprintf(L"%d|", 8 - i);
     for (int j = 0; j < 8; j++) {
-      wprintf(L" %lc |", piece_glyph(board[i][j].type, board[i][j].color));
+      wprintf(L" %lc |", (wint_t)piece_glyph(board[i][j].type, board[i][j].color));
     }
     wprintf(L" %d\n", 8 - i);
     wprintf(L" +---+---+---+---+---+---+---+---+\n");
@@ -68,7 +52,7 @@ void print_board_black(Piece_t board[8][8]) {
   for (int i = 7; i >= 0; i--) {
     wprintf(L"%d|", 8 - i);
     for (int j = 7; j >= 0; j--) {
-      wprintf(L" %lc |", piece_glyph(board[i][j].type, board[i][j].color));
+      wprintf(L" %lc |", (wint_t)piece_glyph(board[i][j].type, board[i][j].color));
     }
     wprintf(L" %d\n", 8 - i);
     wprintf(L" +---+---+---+---+---+---+---+---+\n");
@@ -119,7 +103,7 @@ void print_captures(Captures_node_t *p_captures_head) {
   if (p_captures_head != NULL) {
     Captures_node_t *p_current = p_captures_head;
     while (p_current != NULL) {
-      wprintf(L"%lc ", piece_glyph(p_current->piece.type, p_current->piece.color));
+      wprintf(L"%lc ", (wint_t)piece_glyph(p_current->piece.type, p_current->piece.color));
       p_current = p_current->p_next;
     }
     wprintf(L"\n");
