@@ -117,3 +117,52 @@ void free_history(History_node_t *head) {
     free(tmp);
   }
 }
+
+/* Function: push_hash
+ * Appends a position hash to the end of the hash history, in the same
+ * append-at-tail style as update_captures and update_history.
+ */
+void push_hash(Hash_node_t **pp_hash_head, uint64_t hash) {
+  Hash_node_t *p_node = (Hash_node_t *)malloc(sizeof(Hash_node_t));
+  if (p_node == NULL) {
+    fprintf(stderr, "Memory allocation failed.\n");
+    exit(1);
+  }
+
+  p_node->hash = hash;
+  p_node->p_next = NULL;
+
+  if (*pp_hash_head == NULL) {
+    *pp_hash_head = p_node;
+  } else {
+    Hash_node_t *p_current = *pp_hash_head;
+    while (p_current->p_next != NULL) {
+      p_current = p_current->p_next;
+    }
+    p_current->p_next = p_node;
+  }
+}
+
+void free_hash_history(Hash_node_t *head) {
+  Hash_node_t *tmp;
+  while (head != NULL) {
+    tmp = head;
+    head = head->p_next;
+    free(tmp);
+  }
+}
+
+int hash_history_length(const Hash_node_t *head) {
+  int n = 0;
+  for (const Hash_node_t *p = head; p != NULL; p = p->p_next) {
+    n++;
+  }
+  return n;
+}
+
+void hash_history_to_array(const Hash_node_t *head, uint64_t *out) {
+  int i = 0;
+  for (const Hash_node_t *p = head; p != NULL; p = p->p_next) {
+    out[i++] = p->hash;
+  }
+}
