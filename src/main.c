@@ -13,11 +13,44 @@ Console Chess Game
 #include "core/history.h"
 #include "app/save.h"
 #include "types.h"
+#include "version.h"
 
 #include <locale.h>
+#include <string.h>
 #include <wchar.h>
 
-int main(void) {
+#define PROGRAM_NAME "Console Chess"
+
+static void print_version(void) {
+  wprintf(L"%hs %hs\n", PROGRAM_NAME, chess_version());
+}
+
+// Lists every accepted option, including --version, so --help stays the
+// single place usage has to be updated when an option is added.
+static void print_usage(void) {
+  wprintf(L"Usage: console-chess [OPTION]\n");
+  wprintf(L"\n");
+  wprintf(L"  -v, --version   print the version and exit\n");
+  wprintf(L"  -h, --help      print this help and exit\n");
+}
+
+int main(int argc, char **argv) {
+  // Handled before locale setup, terminal output, or file access, so a
+  // broken environment cannot affect these options.
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+      print_version();
+      return 0;
+    }
+    if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+      print_usage();
+      return 0;
+    }
+    wprintf(L"Unrecognised option: %hs\n\n", argv[i]);
+    print_usage();
+    return 1;
+  }
+
   // Set to a different locale to display unicode characters
   setlocale(LC_ALL, "");
 
@@ -32,7 +65,7 @@ int main(void) {
   wprintf(L"\033[H\033[2J\033[3J");
 
   // Welcome message and instructions
-  wprintf(L"\nWelcome to Console Chess!\n");
+  wprintf(L"\nWelcome to Console Chess %hs!\n", chess_version());
   wprintf(L"2 Player Mode\n\n");
   wprintf(L"How to Play:\n");
   wprintf(L"• Enter moves using chess coordinates, letter first! (e.g., 'e2' to 'e4')\n");
@@ -60,7 +93,7 @@ int main(void) {
   wprintf(L"\033[H\033[2J\033[3J");
 
   if (choice == 2) {
-    if (load_game(&state)) {
+    if (load_game(&state, NULL)) {
       print_history(state.p_history_head);
       wprintf(L"\n");
     } else {

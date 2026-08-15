@@ -1,6 +1,7 @@
 #include "app/save.h"
 
 #include "core/history.h"
+#include "version.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -15,13 +16,15 @@
  * as the new one.
  *
  * Version 1 is the original unversioned format, which had no header at all and
- * so fails the magic check. Version 2 is the current layout, written after
- * Piece_t lost its icon and position fields.
+ * so fails the magic check. Version 2 is the layout after Piece_t lost its
+ * icon and position fields. Version 3 added the writing build's version as a
+ * fixed-size field after the format version (see project-versioning); the
+ * struct layout that follows the header did not change.
  */
 #define SAVE_PATH "game_save.bin"
 #define SAVE_MAGIC "CCHS"
 #define SAVE_MAGIC_LEN 4
-#define SAVE_VERSION 2u
+#define SAVE_VERSION 3u
 
 /* Function: save_game
  * The save_game function saves the current state of a chess game to a binary file.
@@ -49,6 +52,13 @@ int save_game(const GameState *p_state) {
   uint32_t version = SAVE_VERSION;
   fwrite(SAVE_MAGIC, 1, SAVE_MAGIC_LEN, file);
   fwrite(&version, sizeof(version), 1, file);
+
+  // Record which build wrote the file. Fixed-size and zero-padded so the
+  // header stays a fixed size and reading it needs no allocation; the
+  // Makefile refuses to build a version too long to fit.
+  char version_field[SAVE_VERSION_LEN] = {0};
+  strncpy(version_field, chess_version(), SAVE_VERSION_LEN - 1);
+  fwrite(version_field, 1, SAVE_VERSION_LEN, file);
 
   // Save the number of moves
   fwrite(&p_state->moves, sizeof(int), 1, file);
@@ -110,7 +120,7 @@ int save_game(const GameState *p_state) {
  * half-loaded: the work happens on a local GameState, and p_state is only
  * written once the whole file has been read successfully.
  */
-int load_game(GameState *p_state) {
+int load_game(GameState *p_state, char *p_version_out) {
   FILE *file = fopen(SAVE_PATH, "rb");
   if (file == NULL) {
     wprintf(L"Error opening file for loading.\n");
@@ -131,6 +141,16 @@ int load_game(GameState *p_state) {
   History_node_t *current_history = NULL;
   Piece_t piece;
   History_node_t history_node;
+
+  // Load the build version the file was written by. A short read here means
+  // a corrupt or truncated file, not an unrecognised format, so it is
+  // checked the same way as every field below rather than as a format
+  // mismatch above.
+  char version_field[SAVE_VERSION_LEN];
+  if (fread(version_field, 1, SAVE_VERSION_LEN, file) != SAVE_VERSION_LEN) {
+    goto truncated;
+  }
+  version_field[SAVE_VERSION_LEN - 1] = '\0';
 
   // Load the number of moves
   if (fread(&loaded.moves, sizeof(int), 1, file) != 1) {
@@ -213,6 +233,9 @@ int load_game(GameState *p_state) {
 
   // Nothing can fail from here on, so it is safe to hand the game over
   *p_state = loaded;
+  if (p_version_out != NULL) {
+    memcpy(p_version_out, version_field, SAVE_VERSION_LEN);
+  }
   wprintf(L"Game loaded successfully.\n");
 
   return 1;

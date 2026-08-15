@@ -13,6 +13,39 @@ LDFLAGS  ?=
 STD      := -std=c17
 WARN     := -Wall -Wextra
 
+# VERSION is the project's single declared version (see openspec change
+# project-versioning): every other place a version appears derives from it.
+# A missing or malformed file must stop the build before anything is
+# compiled, so the failure names the version problem instead of surfacing
+# as a strange compiler error further down.
+#
+# SAVE_VERSION_FIELD_LEN matches the fixed-size version field in
+# src/app/save.c; a version that would not fit, including its terminating
+# NUL, is a build-time failure rather than a runtime truncation.
+SAVE_VERSION_FIELD_LEN := 16
+
+ifeq ($(wildcard VERSION),)
+$(error VERSION file not found at the repository root; create one containing a version such as "1.1.0")
+endif
+
+VERSION := $(strip $(shell cat VERSION))
+
+ifeq ($(VERSION),)
+$(error VERSION file is empty or contains only whitespace)
+endif
+
+ifeq ($(shell echo '$(VERSION)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$$' && echo ok),)
+$(error VERSION file contains an invalid version string: "$(VERSION)" (expected MAJOR.MINOR.PATCH with an optional pre-release suffix))
+endif
+
+VERSION_LEN := $(shell printf '%s' '$(VERSION)' | wc -c)
+ifeq ($(shell test $(VERSION_LEN) -lt $(SAVE_VERSION_FIELD_LEN) && echo ok),)
+$(error VERSION "$(VERSION)" is too long for the save file's $(SAVE_VERSION_FIELD_LEN)-byte version field)
+endif
+
+# Quoted so it arrives at the compiler as a C string literal.
+CPPFLAGS := -DCHESS_VERSION='"$(VERSION)"'
+
 # -MMD -MP makes the compiler emit a .d file per object listing the headers it
 # read, so editing a header rebuilds every .c that includes it.
 DEPFLAGS := -MMD -MP
@@ -39,7 +72,7 @@ $(BIN): $(OBJ)
 
 $(BUILDDIR)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(STD) $(WARN) $(INCLUDE) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+	$(CC) $(STD) $(WARN) $(INCLUDE) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 run: all
 	./$(BIN)
