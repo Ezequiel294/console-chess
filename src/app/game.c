@@ -1,181 +1,563 @@
 #include "app/game.h"
 
+#include "app/save.h"
 #include "core/board.h"
-#include "ui/display.h"
 #include "core/history.h"
 #include "core/rules.h"
-#include "app/save.h"
+#include "ui/glyphs.h"
+#include "ui/layout.h"
+#include "ui/render.h"
+#include "version.h"
 
-#include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-#include <wchar.h>
 
-/* Function: game_loop
- * The game_loop function manages the main loop of a chess game. It alternates turns between white and black players, updating the board and capturing pieces.
+/* xterm-256 indices.
  *
- * Parameters:
- * - p_state: The game in progress. Mutated in place.
+ * Squares carry no colour of their own. A checkerboard of filled cells reads as
+ * a wall of colour in a terminal, and it fights whatever theme the terminal
+ * already has; the grid rules are enough to say where a square ends. Background
+ * is therefore spent only on the two things worth spotting instantly: the piece
+ * picked up, and the move just played.
  *
- * The function performs the following steps:
- * 1. Initializes variables for tracking if the king is captured and for saving the game.
- * 2. Enters a loop that continues until a king is captured.
- * 3. Alternates turns between white and black players based on the move count.
- * 4. Prints the board and captures, prompts the current player for their move, and updates the board.
- * 5. Every 5 moves, prompts the player to save the game.
- * 6. Clears the screen after each move.
- * 7. If a king is captured, declares the winner and prints the final board and move history.
+ * Those two are deep, unsaturated shades rather than bright ones: a highlight
+ * should read as the square having been tinted, not as a block of colour laid
+ * over the board. Dark enough, too, that the piece colours below work on top of
+ * them and need no special case. */
+#define C_SQUARE_LAST 22       /* dark green: the move just played */
+#define C_SQUARE_SELECTED 58   /* dark olive: the piece picked up */
+#define C_PIECE_WHITE 231
+/* Black on an unbackgrounded square would be invisible on a dark terminal, so
+ * it sits at a grey that reads against either. */
+#define C_PIECE_BLACK 245
+#define C_RULE 244
+#define C_LABEL 246
+#define C_HINT 244
+
+typedef struct {
+  GameState *state;
+
+  int flipped; /* the board is drawn from black's side */
+
+  /* The square picked up, and the move just played. Both -1 when there is none.
+   * The last move is kept and drawn every frame, which is what replaces the
+   * one-second pause the old loop used: seeing your move is no longer a race
+   * against a timer, because the move stays on the board. */
+  int sel_i, sel_j;
+  int last_from_i, last_from_j;
+  int last_to_i, last_to_j;
+
+  /* The square being typed, shown in the status bar as it is entered. */
+  char typed[3];
+  int typed_len;
+
+  /* Between turns: the board has flipped and the next player has not yet said
+   * they are looking. In pass-and-play that gesture is the handoff, and a human
+   * paces it better than a constant does. */
+  int awaiting_handoff;
+
+  int game_over;
+  char message[96];
+} Game_t;
+
+static Game_t g_game;
+
+static Color side_to_move(const Game_t *g) {
+  return (g->state->moves % 2 != 0) ? WHITE : BLACK;
+}
+
+static void clear_entry(Game_t *g) {
+  g->typed[0] = '\0';
+  g->typed_len = 0;
+  g->sel_i = -1;
+  g->sel_j = -1;
+}
+
+/* --- Saving and loading, temporarily -------------------------------------
+ *
+ * Both bindings belong to app-shell-and-persistence, which replaces the file
+ * format, saves after every move, and offers a resume prompt on launch. They
+ * exist here only so the capability is not dark between the two changes.
+ * Delete this section, the app/save.h include, and the hint-line entries when
+ * that change lands.
  */
-void game_loop(GameState *p_state) {
-  int captured_king = 0;
-  wchar_t save_choice;
 
-  do {
-    if (p_state->moves % 2 != 0) {
-      print_board_white(p_state->board);
-      wprintf(L"\n");
-      print_captures(p_state->p_captures_white_head);
-      print_captures(p_state->p_captures_black_head);
-      wprintf(L"\nWhite's turn\n");
-      get_move(p_state, &captured_king);
-      wprintf(L"\033[H\033[2J\033[3J");
-      print_board_white(p_state->board);
-    } else {
-      print_board_black(p_state->board);
-      wprintf(L"\n");
-      print_captures(p_state->p_captures_white_head);
-      print_captures(p_state->p_captures_black_head);
-      wprintf(L"\nBlack's turn\n");
-      get_move(p_state, &captured_king);
-      wprintf(L"\033[H\033[2J\033[3J");
-      print_board_black(p_state->board);
+/* A game with nothing in it yet: the opening position, no moves played. */
+static int game_is_untouched(const Game_t *g) {
+  return g->state->moves == 1 && g->state->p_history_head == NULL;
+}
+
+/* Loading is offered only on an untouched game.
+ *
+ * A load replaces everything, and `l` sits one key away from the squares a
+ * player spends the game typing. Restricting it to a game with no moves in it
+ * means a mistyped key can cost at most a game that had not started. */
+static int can_load(const Game_t *g) {
+  return !g->game_over && game_is_untouched(g);
+}
+
+/* Saving is the mirror image, and refused on an untouched game.
+ *
+ * There is nothing in the opening position worth keeping, and writing it would
+ * destroy a real save — the one the player is one keystroke away from loading.
+ * The two commands are therefore never available at the same time. */
+static int can_save(const Game_t *g) {
+  return !game_is_untouched(g);
+}
+
+static const char *load_message(Load_result_t result) {
+  switch (result) {
+  case LOAD_OK:
+    return "Game loaded.";
+  case LOAD_NO_FILE:
+    return "No saved game found.";
+  case LOAD_WRONG_FORMAT:
+    return "That save was written by an incompatible build.";
+  case LOAD_CORRUPT:
+    return "The save file is incomplete or corrupted.";
+  }
+  return "Could not load the saved game.";
+}
+
+/* The loaded game's last move, so a resumed game shows the same highlight a
+ * played one would. */
+static void highlight_last_move(Game_t *g) {
+  g->last_from_i = -1;
+  g->last_from_j = -1;
+  g->last_to_i = -1;
+  g->last_to_j = -1;
+
+  History_node_t *last = NULL;
+  for (History_node_t *p = g->state->p_history_head; p != NULL; p = p->p_next) {
+    last = p;
+  }
+  if (last == NULL) {
+    return;
+  }
+  square_to_index(last->prev_pos, &g->last_from_i, &g->last_from_j);
+  square_to_index(last->next_pos, &g->last_to_i, &g->last_to_j);
+}
+
+static void load_into(Game_t *g) {
+  /* load_game overwrites the state wholesale on success, so the lists it
+   * replaces are reachable only through heads taken beforehand. */
+  Captures_node_t *old_white = g->state->p_captures_white_head;
+  Captures_node_t *old_black = g->state->p_captures_black_head;
+  History_node_t *old_history = g->state->p_history_head;
+
+  Load_result_t result = load_game(g->state, NULL);
+  snprintf(g->message, sizeof(g->message), "%s", load_message(result));
+  if (result != LOAD_OK) {
+    return;
+  }
+
+  free_captures(old_white);
+  free_captures(old_black);
+  free_history(old_history);
+
+  clear_entry(g);
+  g->awaiting_handoff = 0;
+  g->flipped = (side_to_move(g) == BLACK);
+  highlight_last_move(g);
+}
+
+/* --- Rendering ---------------------------------------------------------- */
+
+static int square_bg(const Game_t *g, int i, int j) {
+  if (i == g->sel_i && j == g->sel_j) {
+    return C_SQUARE_SELECTED;
+  }
+  if ((i == g->last_from_i && j == g->last_from_j) ||
+      (i == g->last_to_i && j == g->last_to_j)) {
+    return C_SQUARE_LAST;
+  }
+  return COLOR_DEFAULT; /* the terminal's own background shows through */
+}
+
+static int piece_fg(Color color) {
+  return (color == BLACK) ? C_PIECE_BLACK : C_PIECE_WHITE;
+}
+
+static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
+  int gw = glyphs_width();
+  int sq_w = lay->square_w;
+  int grid_x = 2;
+  int grid_y = 1;
+  int grid_w = 8 * (sq_w + 1) + 1;
+
+  /* File labels above and below, centred over their columns. The lower row sits
+   * one line below the closing rule rather than on it — most of the moves a
+   * player types are for pieces near the bottom of the board, so that is the
+   * copy they will actually read. */
+  for (int f = 0; f < 8; f++) {
+    int file = g->flipped ? 7 - f : f;
+    char label[2] = {(char)('a' + file), '\0'};
+    int x = grid_x + f * (sq_w + 1) + 1 + sq_w / 2;
+    draw_text(r, x, 0, label, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
+    draw_text(r, x, grid_y + 8 * 2 + 1, label, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
+  }
+
+  /* Horizontal rules, one above each rank and one below the last. */
+  for (int row = 0; row <= 8; row++) {
+    int y = grid_y + row * 2;
+    for (int x = 0; x < grid_w; x++) {
+      int on_junction = ((x % (sq_w + 1)) == 0);
+      uint32_t ch = 0x2500u; /* ─ */
+      if (on_junction) {
+        int left = (x == 0);
+        int right = (x == grid_w - 1);
+        if (row == 0) {
+          ch = left ? 0x250Cu : right ? 0x2510u : 0x252Cu;
+        } else if (row == 8) {
+          ch = left ? 0x2514u : right ? 0x2518u : 0x2534u;
+        } else {
+          ch = left ? 0x251Cu : right ? 0x2524u : 0x253Cu;
+        }
+      }
+      draw_glyph(r, grid_x + x, y, ch, 1, C_RULE, COLOR_DEFAULT, ATTR_NONE);
     }
+  }
 
-    p_state->moves++;
+  for (int row = 0; row < 8; row++) {
+    int i = g->flipped ? 7 - row : row;
+    int y = grid_y + row * 2 + 1;
 
-    if (!captured_king && p_state->moves % 5 == 0) {
-      // Ask the player if they want to save the game
-      wprintf(L"\nDo you want to save the game? (y/n): ");
-      wscanf(L" %lc", &save_choice);
-      while (getwchar() != '\n')
-        ; // Clear the input buffer
-      if (save_choice == L'y' || save_choice == L'Y') {
-        save_game(p_state);
-        exit(0);
-      } else {
-        wprintf(L"\033[H\033[2J\033[3J");
+    char rank[2] = {(char)('8' - i), '\0'};
+    draw_text(r, 0, y, rank, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
+    draw_text(r, grid_x + grid_w + 1, y, rank, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
+
+    for (int col = 0; col < 8; col++) {
+      int j = g->flipped ? 7 - col : col;
+      int x = grid_x + col * (sq_w + 1);
+
+      draw_glyph(r, x, y, 0x2502u, 1, C_RULE, COLOR_DEFAULT, ATTR_NONE);
+
+      int bg = square_bg(g, i, j);
+      Piece_t piece = g->state->board[i][j];
+      int fg = piece_fg(piece.color);
+
+      for (int k = 0; k < sq_w; k++) {
+        draw_glyph(r, x + 1 + k, y, ' ', 1, fg, bg, ATTR_NONE);
+      }
+      if (piece.type != FREE) {
+        /* Centred on the square, at whatever width the terminal was measured
+         * to draw the glyph, so the columns line up either way. */
+        draw_glyph(r, x + 1 + (sq_w - gw) / 2, y, piece_glyph(piece.type, piece.color),
+                   gw, fg, bg, ATTR_NONE);
       }
     }
-
-    if (p_state->moves % 5 != 0 && !captured_king) {
-      // Hold the finished move on screen long enough for the player who made
-      // it to see it before the board flips to the other side.
-      sleep(1);
-      wprintf(L"\033[H\033[2J\033[3J");
-    }
-  } while (!captured_king);
-
-  wprintf(L"\033[H\033[2J\033[3J");
-  wprintf(L"\nCheckmate, ");
-  if (p_state->moves % 2 == 0) {
-    wprintf(L"White wins!\n\n");
-    print_board_white(p_state->board);
-    print_history(p_state->p_history_head);
-  } else {
-    wprintf(L"Black wins!\n\n");
-    print_board_black(p_state->board);
-    print_history(p_state->p_history_head);
+    draw_glyph(r, grid_x + grid_w - 1, y, 0x2502u, 1, C_RULE, COLOR_DEFAULT, ATTR_NONE);
   }
 }
 
-/* Function: get_move
- * The get_move function handles the process of getting and validating a player's move in a chess game.
- *
- * Parameters:
- * - p_state: The game in progress. The board, captures and history are updated in place.
- * - captured_king: Pointer to an integer indicating if a king has been captured.
- *
- * The function performs the following steps:
- * 1. Prompts the player to enter the position of the piece they want to move.
- * 2. Validates the input and checks if the selected piece is of the correct color.
- * 3. Prompts the player to enter the position where they want to move the piece.
- * 4. Validates the input and gets the coordinates of the next position.
- * 5. Checks if the move is valid.
- * 6. If the move is valid, updates the board, captures, and history and returns.
- * 7. If the move is invalid, says so and asks again.
- */
-void get_move(GameState *p_state, int *captured_king) {
-  char prev_pos[3];
-  char next_pos[3];
-  int prev_i, prev_j, next_i, next_j;
-
-  // The side to move owns the list its captures go onto
-  Captures_node_t **pp_capture_color_head = (p_state->moves % 2 != 0)
-                                                ? &p_state->p_captures_white_head
-                                                : &p_state->p_captures_black_head;
-
-  // Ask until a legal move is entered. This used to be a recursive call to
-  // get_move, so a player who kept picking illegal moves grew the stack
-  // instead of just being asked again.
-  while (1) {
-    // Get the piece to move
-    while (1) {
-      wprintf(L"Enter the position of the piece you want to move: ");
-      wscanf(L"%2s", prev_pos);
-      if (strlen(prev_pos) == 2 && prev_pos[0] >= 'a' && prev_pos[0] <= 'h' && prev_pos[1] >= '1' && prev_pos[1] <= '8') {
-        prev_pos[2] = '\0';
-        // Check if the selected piece is of the correct color
-        if (square_to_index(prev_pos, &prev_i, &prev_j) && p_state->board[prev_i][prev_j].type != FREE && p_state->board[prev_i][prev_j].color == ((p_state->moves % 2 != 0) ? WHITE : BLACK)) {
-          break;
-        } else {
-          wprintf(L"Invalid selection. Please select a piece of the correct color.\n");
-        }
-      } else {
-        wprintf(L"Invalid input. Please enter a valid position.\n");
-      }
-      while (getwchar() != '\n')
-        ; // Clear the input buffer
+static int draw_capture_row(Rect r, int y, const char *label, Captures_node_t *head) {
+  draw_text(r, 0, y, label, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
+  int x = 0;
+  int gw = glyphs_width();
+  for (Captures_node_t *p = head; p != NULL; p = p->p_next) {
+    if (x + gw > r.w) {
+      break; /* the rest is cut off rather than spilling onto the next line */
     }
+    draw_glyph(r, x, y + 1, piece_glyph(p->piece.type, p->piece.color), gw,
+               piece_fg(p->piece.color), COLOR_DEFAULT, ATTR_NONE);
+    x += gw + 1;
+  }
+  return y + 2;
+}
 
-    // Get the next position
-    while (1) {
-      wprintf(L"Enter the position where you want to move the piece: ");
-      wscanf(L"%2s", next_pos);
-      if (strlen(next_pos) == 2 && next_pos[0] >= 'a' && next_pos[0] <= 'h' &&
-          next_pos[1] >= '1' && next_pos[1] <= '8') {
-        next_pos[2] = '\0';
-        break;
-      }
-      wprintf(L"Invalid input. Please enter a valid position.\n");
-      while (getwchar() != '\n')
-        ; // Clear the input buffer
-    }
-
-    // Get the coordinates of the next position
-    square_to_index(next_pos, &next_i, &next_j);
-
-    // Check if the move is valid
-    if (!is_valid_move(p_state->board, prev_i, prev_j, next_i, next_j)) {
-      wprintf(L"Invalid move. Please try again.\n");
-      continue;
-    }
-
-    // Check if the move captures a piece
-    if (p_state->board[next_i][next_j].type != FREE) {
-      // Update the captures
-      update_captures(pp_capture_color_head, p_state->board[next_i][next_j]);
-
-      // Check if the piece being captured is a king
-      if (p_state->board[next_i][next_j].type == KING) {
-        // End the game
-        *captured_king = 1;
-      }
-    }
-    // Update the board
-    update_board(p_state->board, prev_i, prev_j, next_i, next_j);
-    // Update the history
-    update_history(&p_state->p_history_head, prev_pos, next_pos);
-
+static void draw_panel(const Game_t *g, Rect r) {
+  if (r.w < 8 || r.h < 4) {
     return;
   }
+  Rect inner = rect_sub(r, 1, 0, r.w - 1, r.h);
+
+  int y = 0;
+  y = draw_capture_row(inner, y, "Taken by White", g->state->p_captures_white_head);
+  y = draw_capture_row(inner, y, "Taken by Black", g->state->p_captures_black_head);
+
+  y++;
+  draw_text(inner, 0, y, "Moves", C_LABEL, COLOR_DEFAULT, ATTR_NONE);
+  y++;
+
+  /* The history list is oldest first and the interesting end is the newest, so
+   * the tail that fits is what is shown. The scrollable full list is a screen
+   * of its own in a later change. */
+  int room = inner.h - y;
+  if (room < 1) {
+    return;
+  }
+  int total = 0;
+  for (History_node_t *p = g->state->p_history_head; p != NULL; p = p->p_next) {
+    total++;
+  }
+  int skip = total > room ? total - room : 0;
+
+  int n = 0;
+  char line[32];
+  for (History_node_t *p = g->state->p_history_head; p != NULL; p = p->p_next, n++) {
+    if (n < skip) {
+      continue;
+    }
+    snprintf(line, sizeof(line), "%3d. %s-%s", n + 1, p->prev_pos, p->next_pos);
+    draw_text(inner, 0, y + (n - skip), line, COLOR_DEFAULT, COLOR_DEFAULT, ATTR_NONE);
+  }
+}
+
+static void draw_status(const Game_t *g, Rect r) {
+  char line[160];
+  const char *mover = (side_to_move(g) == WHITE) ? "White" : "Black";
+
+  draw_hline(r, 0, 0, r.w, 0x2500u, C_RULE, COLOR_DEFAULT, ATTR_NONE);
+
+  if (g->game_over) {
+    snprintf(line, sizeof(line), "%s", g->message);
+  } else if (g->awaiting_handoff) {
+    snprintf(line, sizeof(line), "%s to move — press SPACE", mover);
+  } else if (g->sel_i >= 0) {
+    char from[3];
+    index_to_square(g->sel_i, g->sel_j, from);
+    snprintf(line, sizeof(line), "%s: %s → %-2s_   %s", mover, from, g->typed, g->message);
+  } else {
+    snprintf(line, sizeof(line), "%s: %-2s_   %s", mover, g->typed, g->message);
+  }
+  draw_text(r, 0, 1, line, COLOR_DEFAULT, COLOR_DEFAULT, ATTR_NONE);
+
+  /* Each hint appears only while its key does anything, which is also what
+   * documents when it stops. Loading and saving are mutually exclusive, so the
+   * line never has to carry both. Every variant fits the narrowest terminal the
+   * game runs in: the status bar clips rather than wraps, but a clipped hint is
+   * still a hint nobody can read. */
+  const char *hints;
+  if (g->game_over) {
+    hints = "s save  ·  q quit";
+  } else if (can_load(g)) {
+    hints = "square+Enter · Esc clear · F flip · l load · q quit";
+  } else {
+    hints = "square+Enter · Esc clear · F flip · s save · q quit";
+  }
+  draw_text(r, 0, 2, hints, C_HINT, COLOR_DEFAULT, ATTR_DIM);
+}
+
+static void game_render(void *ctx, Rect r) {
+  Game_t *g = (Game_t *)ctx;
+  Layout lay;
+
+  /* Laid out from the region handed in, every frame. Nothing here remembers a
+   * size, so there is no stale layout for a resize to leave behind. */
+  if (!layout_compute(r, glyphs_width(), &lay)) {
+    return;
+  }
+
+  char title[80];
+  snprintf(title, sizeof(title), "Console Chess %s", chess_version());
+  draw_text(lay.title, 1, 0, title, C_LABEL, COLOR_DEFAULT, ATTR_BOLD);
+
+  draw_board(g, lay.board, &lay);
+  draw_panel(g, lay.panel);
+  draw_status(g, lay.status);
+}
+
+/* --- Turn flow ---------------------------------------------------------- */
+
+static void finish_move(Game_t *g, int from_i, int from_j, int to_i, int to_j,
+                        const char *from, const char *to) {
+  Captures_node_t **captures = (side_to_move(g) == WHITE)
+                                   ? &g->state->p_captures_white_head
+                                   : &g->state->p_captures_black_head;
+
+  int captured_king = 0;
+  if (g->state->board[to_i][to_j].type != FREE) {
+    update_captures(captures, g->state->board[to_i][to_j]);
+    if (g->state->board[to_i][to_j].type == KING) {
+      captured_king = 1;
+    }
+  }
+
+  update_board(g->state->board, from_i, from_j, to_i, to_j);
+  update_history(&g->state->p_history_head, (char *)from, (char *)to);
+
+  g->last_from_i = from_i;
+  g->last_from_j = from_j;
+  g->last_to_i = to_i;
+  g->last_to_j = to_j;
+
+  g->state->moves++;
+  clear_entry(g);
+  g->message[0] = '\0';
+
+  if (captured_king) {
+    g->game_over = 1;
+    /* moves has already advanced past the capturing move, so the side that
+     * played it is the one not to move. */
+    snprintf(g->message, sizeof(g->message), "Checkmate — %s wins!",
+             (g->state->moves % 2 == 0) ? "White" : "Black");
+  } else {
+    g->awaiting_handoff = 1;
+  }
+}
+
+static void submit(Game_t *g) {
+  int i, j;
+
+  if (g->typed_len != 2 || !square_to_index(g->typed, &i, &j)) {
+    snprintf(g->message, sizeof(g->message), "Enter a square, e.g. e2.");
+    return;
+  }
+
+  if (g->sel_i < 0) {
+    if (g->state->board[i][j].type == FREE || g->state->board[i][j].color != side_to_move(g)) {
+      snprintf(g->message, sizeof(g->message), "Pick one of your own pieces.");
+      g->typed[0] = '\0';
+      g->typed_len = 0;
+      return;
+    }
+    g->sel_i = i;
+    g->sel_j = j;
+    g->typed[0] = '\0';
+    g->typed_len = 0;
+    g->message[0] = '\0';
+    return;
+  }
+
+  if (!is_valid_move(g->state->board, g->sel_i, g->sel_j, i, j)) {
+    snprintf(g->message, sizeof(g->message), "That piece cannot move there.");
+    g->typed[0] = '\0';
+    g->typed_len = 0;
+    return;
+  }
+
+  char from[3];
+  char to[3];
+  index_to_square(g->sel_i, g->sel_j, from);
+  index_to_square(i, j, to);
+  finish_move(g, g->sel_i, g->sel_j, i, j, from, to);
+}
+
+static void type_char(Game_t *g, uint32_t ch) {
+  /* A square is a file then a rank, so each position accepts only what can
+   * legally be there. Nothing else reaches the buffer. */
+  if (g->typed_len == 0 && ch >= 'a' && ch <= 'h') {
+    g->typed[0] = (char)ch;
+    g->typed[1] = '\0';
+    g->typed_len = 1;
+  } else if (g->typed_len == 1 && ch >= '1' && ch <= '8') {
+    g->typed[1] = (char)ch;
+    g->typed[2] = '\0';
+    g->typed_len = 2;
+  }
+}
+
+static Cmd_t game_handle(void *ctx, const Event_t *ev) {
+  Game_t *g = (Game_t *)ctx;
+  Cmd_t quit = {CMD_QUIT, NULL};
+
+  /* Mouse and paste events are recognised and ignored here. The parser emits
+   * them; the board's first use of them arrives in mouse-and-highlights. */
+  if (ev->type != EV_KEY) {
+    return CMD_STAY;
+  }
+
+  if (ev->key.name == KEY_CHAR && (ev->key.ch == 'q' || ev->key.ch == 'Q')) {
+    return quit;
+  }
+  /* Ctrl-L forces a full repaint. It exists so a display that looks wrong can
+   * be told apart from state that is wrong: if this fixes it, the frame was
+   * composed correctly and the diff was at fault. */
+  if ((ev->key.name == KEY_CHAR && ev->key.ch == 12) || ev->key.name == KEY_F5) {
+    render_force_repaint();
+    return CMD_STAY;
+  }
+  /* Shift-F, not f: the files are a-h, so a lowercase f belongs to the move
+   * field. A binding that swallowed it would make the f-file unreachable. */
+  if (ev->key.name == KEY_CHAR && ev->key.ch == 'F') {
+    g->flipped = !g->flipped;
+    return CMD_STAY;
+  }
+  /* Temporary; see the saving and loading section above. */
+  if (ev->key.name == KEY_CHAR && (ev->key.ch == 's' || ev->key.ch == 'S')) {
+    if (!can_save(g)) {
+      snprintf(g->message, sizeof(g->message),
+               "Nothing to save yet — play a move first.");
+    } else {
+      snprintf(g->message, sizeof(g->message), "%s",
+               save_game(g->state) ? "Game saved." : "Could not save the game.");
+    }
+    return CMD_STAY;
+  }
+  if (ev->key.name == KEY_CHAR && (ev->key.ch == 'l' || ev->key.ch == 'L')) {
+    if (can_load(g)) {
+      load_into(g);
+    } else {
+      snprintf(g->message, sizeof(g->message),
+               "Loading is offered only before the first move.");
+    }
+    return CMD_STAY;
+  }
+
+  if (g->game_over) {
+    return CMD_STAY;
+  }
+
+  if (g->awaiting_handoff) {
+    if (ev->key.name == KEY_ENTER || (ev->key.name == KEY_CHAR && ev->key.ch == ' ')) {
+      g->awaiting_handoff = 0;
+      g->flipped = (side_to_move(g) == BLACK);
+    }
+    return CMD_STAY;
+  }
+
+  switch (ev->key.name) {
+  case KEY_ENTER:
+    submit(g);
+    break;
+  case KEY_ESCAPE:
+    clear_entry(g);
+    g->message[0] = '\0';
+    break;
+  case KEY_BACKSPACE:
+    if (g->typed_len > 0) {
+      g->typed_len--;
+      g->typed[g->typed_len] = '\0';
+    } else if (g->sel_i >= 0) {
+      g->sel_i = -1;
+      g->sel_j = -1;
+    }
+    break;
+  case KEY_CHAR:
+    type_char(g, ev->key.ch);
+    break;
+  default:
+    break;
+  }
+  return CMD_STAY;
+}
+
+/* --- Construction ------------------------------------------------------- */
+
+static void game_on_enter(void *ctx) {
+  Game_t *g = (Game_t *)ctx;
+  clear_entry(g);
+  g->message[0] = '\0';
+  g->flipped = (side_to_move(g) == BLACK);
+}
+
+Screen *game_screen(GameState *state) {
+  static Screen screen;
+
+  memset(&g_game, 0, sizeof(g_game));
+  g_game.state = state;
+  g_game.sel_i = -1;
+  g_game.sel_j = -1;
+  g_game.last_from_i = -1;
+  g_game.last_from_j = -1;
+  g_game.last_to_i = -1;
+  g_game.last_to_j = -1;
+
+  screen.on_enter = game_on_enter;
+  screen.on_exit = NULL;
+  screen.handle = game_handle;
+  screen.render = game_render;
+  screen.ctx = &g_game;
+  screen.opaque = 1;
+  return &screen;
 }

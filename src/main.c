@@ -7,36 +7,43 @@ Console Chess Game
 */
 
 
-#include "core/board.h"
-#include "ui/display.h"
+#include "app/app.h"
 #include "app/game.h"
+#include "app/toosmall.h"
+#include "core/board.h"
 #include "core/history.h"
-#include "app/save.h"
 #include "types.h"
+#include "ui/glyphs.h"
+#include "ui/input.h"
+#include "ui/render.h"
+#include "ui/term.h"
 #include "version.h"
 
-#include <locale.h>
+#include <stdio.h>
 #include <string.h>
-#include <wchar.h>
 
 #define PROGRAM_NAME "Console Chess"
 
 static void print_version(void) {
-  wprintf(L"%hs %hs\n", PROGRAM_NAME, chess_version());
+  printf("%s %s\n", PROGRAM_NAME, chess_version());
 }
 
 // Lists every accepted option, including --version, so --help stays the
 // single place usage has to be updated when an option is added.
 static void print_usage(void) {
-  wprintf(L"Usage: console-chess [OPTION]\n");
-  wprintf(L"\n");
-  wprintf(L"  -v, --version   print the version and exit\n");
-  wprintf(L"  -h, --help      print this help and exit\n");
+  printf("Usage: console-chess [OPTION]\n");
+  printf("\n");
+  printf("      --ascii     draw pieces as letters instead of icons,\n");
+  printf("                  for terminals without a Nerd Font\n");
+  printf("  -v, --version   print the version and exit\n");
+  printf("  -h, --help      print this help and exit\n");
 }
 
 int main(int argc, char **argv) {
-  // Handled before locale setup, terminal output, or file access, so a
-  // broken environment cannot affect these options.
+  int ascii = 0;
+
+  // Handled before terminal setup or file access, so a broken environment
+  // cannot affect these options.
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
       print_version();
@@ -46,67 +53,58 @@ int main(int argc, char **argv) {
       print_usage();
       return 0;
     }
-    wprintf(L"Unrecognised option: %hs\n\n", argv[i]);
+    if (strcmp(argv[i], "--ascii") == 0) {
+      ascii = 1;
+      continue;
+    }
+    printf("Unrecognised option: %s\n\n", argv[i]);
     print_usage();
     return 1;
   }
 
-  // Set to a different locale to display unicode characters
-  setlocale(LC_ALL, "");
+  // Checked before anything is written, so a redirected run leaves no escape
+  // sequences in the redirected stream.
+  if (!term_is_interactive()) {
+    fprintf(stderr, "%s needs an interactive terminal.\n", PROGRAM_NAME);
+    return 1;
+  }
 
-  int choice;
+  // Restoration is armed before the first mode change, so there is no window in
+  // which the program can die having changed the terminal but not yet arranged
+  // to change it back.
+  if (!term_init()) {
+    fprintf(stderr, "Could not read the terminal's settings.\n");
+    return 1;
+  }
 
-  // main owns the game. Everything below borrows it by address, so there is
-  // never a second copy of a list head to get out of step.
+  glyphs_use_ascii(ascii);
+  if (!ascii) {
+    // Asked on the primary screen, before the alternate one is entered, so the
+    // question and its answer never appear in the game display.
+    glyphs_set_width(term_probe_glyph_width(glyph_probe_sample()));
+  }
+
+  if (!term_enter()) {
+    fprintf(stderr, "Could not put the terminal into full-screen mode.\n");
+    return 1;
+  }
+
+  // main owns the game. The screen borrows it by address, so there is never a
+  // second copy of a list head to get out of step.
   GameState state = {0};
   state.moves = 1;
-
-  // Clear the screen
-  wprintf(L"\033[H\033[2J\033[3J");
-
-  // Welcome message and instructions
-  wprintf(L"\nWelcome to Console Chess %hs!\n", chess_version());
-  wprintf(L"2 Player Mode\n\n");
-  wprintf(L"How to Play:\n");
-  wprintf(L"• Enter moves using chess coordinates, letter first! (e.g., 'e2' to 'e4')\n");
-  wprintf(L"• White pieces play first (♚), then Black (♔)\n");
-  wprintf(L"• Save your game anytime by entering 'y' when prompted\n");
-  wprintf(L"• Capture pieces to win - the game ends when a King is captured!\n\n");
-
-  // Initialize the board
   init_board(state.board);
-  print_board_white(state.board);
 
-  // Start of the Main Menu
-  wprintf(L"\n1. New Game\n");
-  wprintf(L"2. Load Game\n");
-  wprintf(L"Enter a number: ");
-  // Input validation
-  while (wscanf(L"%d", &choice) != 1 || (choice != 1 && choice != 2)) {
-    wprintf(L"Invalid input. Please enter 1 or 2: ");
-    // Clear the input buffer
-    while (getwchar() != '\n')
-      ;
-  }
-
-  // Clear the screen after main menu
-  wprintf(L"\033[H\033[2J\033[3J");
-
-  if (choice == 2) {
-    if (load_game(&state, NULL)) {
-      print_history(state.p_history_head);
-      wprintf(L"\n");
-    } else {
-      wprintf(L"Error loading game. Starting a new one.\n\n");
-    }
-  }
-
-  // Main game loop
-  game_loop(&state);
+  app_set_too_small_screen(toosmall_screen());
+  int status = app_run(game_screen(&state));
 
   free_captures(state.p_captures_white_head);
   free_captures(state.p_captures_black_head);
   free_history(state.p_history_head);
 
-  return 0;
+  input_shutdown();
+  render_shutdown();
+  term_restore();
+
+  return status;
 }
