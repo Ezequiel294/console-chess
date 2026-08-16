@@ -2,7 +2,7 @@
 
 A two-player chess game that runs entirely in the terminal
 
-Current version: **2.0.1**
+Current version: **2.1.0**
 
 ## Requirements
 
