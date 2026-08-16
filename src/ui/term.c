@@ -82,6 +82,18 @@ int term_is_interactive(void) {
   return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
 }
 
+int term_supports_color(void) {
+  const char *no_color = getenv("NO_COLOR");
+  if (no_color != NULL && *no_color != '\0') {
+    return 0;
+  }
+  const char *term = getenv("TERM");
+  if (term == NULL || *term == '\0' || strcmp(term, "dumb") == 0) {
+    return 0;
+  }
+  return 1;
+}
+
 int term_init(void) {
   if (tcgetattr(STDIN_FILENO, &g_saved_termios) != 0) {
     return 0;
@@ -146,6 +158,13 @@ int term_enter(void) {
        * amount of parsing can tell from a real keypress. This one sequence is
        * the whole of that bug. */
       "\033[?1007l"
+      /* Mouse reporting: ?1000h is click tracking (press and release, no
+       * motion); ?1006h switches the report encoding to SGR, which — unlike
+       * the legacy encoding it replaces — can express a column past 223.
+       * RESTORE_SEQ above already turns both off, and 1002/1003 as well, so
+       * the teardown path was ready for this before it was ever turned on. */
+      "\033[?1000h"
+      "\033[?1006h"
       "\033[?2004h" /* bracketed paste: a paste arrives framed, not as keys */
       "\033[2J";    /* start from a known-empty alternate screen */
 

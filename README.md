@@ -61,26 +61,33 @@ touches no terminal and no files, which is what lets it be tested without one.
 
 ## How to Play
 
-- **Making a move**: type the square the piece is on, press Enter, then type the square to move it to and press Enter. Coordinates are letter first, e.g. `e2` then `e4`. What you type appears in the status bar; nothing scrolls.
+- **Making a move**: three interchangeable ways to name a square, usable in any combination within the same move:
+  - **Mouse**: click a piece, then click its destination.
+  - **Typed coordinates**: type the square, press Enter, then type the destination and press Enter. Coordinates are letter first, e.g. `e2` then `e4`. What you type appears in the status bar; nothing scrolls.
+  - **Keyboard cursor**: move the reversed-video square on the rank and file labels with the arrow keys, and press Enter to name it.
+
+  Clicking a piece, typing a square, and moving the cursor all produce the same selection — whichever you used last is the one that counts, and none of them is required. Selecting is separate from moving: clicking or naming a square holding one of your own pieces only selects it, and a second click or square either completes the move, changes the selection to a different piece of yours, or — if it names an illegal square — is rejected and the selection stays. Escape, or naming the selected square again, cancels the selection.
 - **Turn order**: White plays first, then Black. Between turns the board flips and the status bar waits for the next player to press Space, so a move stays on screen until someone is looking at it.
-- **Highlights**: the two squares of the move just played keep a dark green tint; the piece you have picked up keeps a dark olive one. Squares are otherwise left to the terminal's own background, so the board sits in whatever theme you use. The two shades are `C_SQUARE_LAST` and `C_SQUARE_SELECTED` at the top of `src/app/game.c` if you want them lighter or darker.
-- **Winning**: the game ends when a King is captured.
+- **Highlights**: while a piece is selected, every square it may legally move to is marked — a centred dot on an empty square, a tinted background where it would capture (including en passant). The selected square keeps a dark olive tint, and the two squares of the move just played keep a dark green one. A king in check gets a dark amber tint plus a small `!` in the corner of its square, which stays in a final checkmate position. None of this changes what is legal — it is exactly what `generate_legal_moves` already decided, drawn. On a terminal without colour (or with `NO_COLOR` set), every one of these falls back to a distinct shape in the corner of the square instead of a tint, so nothing depends on colour to be readable. The tints are the `C_SQUARE_*` constants at the top of `src/app/game.c` if you want them lighter or darker.
+- **Winning**: the game ends in checkmate, stalemate, or a draw by the fifty-move rule, insufficient material, or threefold repetition — whichever the position reaches first.
 
 ### Key bindings
 
-| Key             | Action                                                       |
-| --------------- | ------------------------------------------------------------ |
-| `a`–`h`, `1`–`8`| Type a square into the status bar's move field                |
-| `Enter`         | Submit the square — first the piece, then its destination      |
-| `Backspace`     | Delete the last character typed, or release the selected piece |
-| `Esc`           | Clear the move field and the selection                        |
-| `Space`         | Take the handoff and start your turn                          |
-| `F`             | Flip the board's orientation                                  |
-| `s`             | Save the game — only after a move has been played (temporary)  |
-| `l`             | Load the saved game — only before the first move (temporary)   |
-| `Ctrl-L`        | Force a full repaint                                          |
-| `q`             | Quit                                                          |
-| `Ctrl-C`        | Quit; the terminal is restored either way                     |
+| Key              | Action                                                          |
+| ---------------- | ---------------------------------------------------------------- |
+| Click             | Select a piece, or name its destination                          |
+| Arrow keys        | Move the keyboard cursor                                         |
+| `a`–`h`, `1`–`8`  | Type a square into the status bar's move field                   |
+| `Enter`           | Submit the typed square, or the keyboard cursor if nothing is typed |
+| `Backspace`       | Delete the last character typed, or release the selected piece   |
+| `Esc`             | Clear the move field and the selection                           |
+| `Space`           | Take the handoff and start your turn                             |
+| `F`               | Flip the board's orientation                                     |
+| `s`               | Save the game — only after a move has been played (temporary)    |
+| `l`               | Load the saved game — only before the first move (temporary)     |
+| `Ctrl-L`          | Force a full repaint                                             |
+| `q`               | Quit                                                              |
+| `Ctrl-C`          | Quit; the terminal is restored either way                        |
 
 `F` is shifted because the lowercase letters `a`–`h` are file names and belong to
 the move field.
@@ -91,15 +98,16 @@ the move field.
   frame, including after a font size change. Below the size the board needs, the
   game is replaced by a message giving the required and current sizes; the game
   is untouched and returns when there is room again.
-- **Text selection and the mouse**: this build does not turn mouse reporting on,
-  so selecting text with the mouse works normally. When mouse support lands,
-  that changes: with reporting on, the terminal sends a drag to the game instead
-  of highlighting text, and selecting requires holding `Option` (macOS Terminal
-  and iTerm2) or `Shift` (most Linux terminals). The teardown path already turns
-  every mouse mode off, so quitting never leaves the terminal in that state.
-- **Scrolling**: the wheel does not scroll the game and does not type anything.
-  The game runs on the alternate screen, so your shell's scrollback is untouched
-  and returns intact when you quit.
+- **Text selection and the mouse**: with mouse reporting on, the terminal sends
+  a click to the game instead of letting you select text with it. To select
+  text from the game screen anyway, hold `Option` while dragging (macOS
+  Terminal and iTerm2) or `Shift` (most Linux terminals). Mouse reporting is
+  turned off the moment the game exits — normally, on a crash, or on Ctrl-C —
+  so a terminal is never left in that state.
+- **Scrolling**: the wheel does not scroll the game and does not type anything;
+  it is read and deliberately discarded. The game runs on the alternate
+  screen, so your shell's scrollback is untouched and returns intact when you
+  quit.
 
 ### Save and Load
 
@@ -142,5 +150,4 @@ The project version and the save file's format version are separate numbers, tra
 ## Notes
 
 - Ensure your terminal supports Unicode and that the Nerd Font is correctly configured to display the chess piece icons. The game measures how wide your terminal draws them at startup and sizes the board to match, so the columns line up either way; `--ascii` avoids the question entirely.
-- Check and checkmate are not enforced — the game ends when a King is actually captured.
 - macOS and Linux. Windows would need a console-API backend.
