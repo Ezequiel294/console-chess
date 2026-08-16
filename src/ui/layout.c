@@ -7,6 +7,13 @@
 #define STATUS_H 3
 #define TITLE_H 1
 
+/* The grid's offset from the board block's own origin: a rank label and a
+ * space to its left, a file label row above. board_block_w/h below add these
+ * on both sides; grid_x/grid_y in Layout carry only the leading one, which is
+ * the corner hit-testing and drawing both need. */
+#define GRID_X 2
+#define GRID_Y 1
+
 /* The board's own grid, without labels: eight squares and the nine vertical
  * rules between and around them. */
 static int board_grid_w(int glyph_width) {
@@ -19,10 +26,10 @@ static int board_grid_h(void) {
 }
 
 /* Plus a rank label and a space on each side. */
-static int board_block_w(int glyph_width) { return board_grid_w(glyph_width) + 4; }
+static int board_block_w(int glyph_width) { return board_grid_w(glyph_width) + 2 * GRID_X; }
 
 /* Plus a file label row above and below. */
-static int board_block_h(void) { return board_grid_h() + 2; }
+static int board_block_h(void) { return board_grid_h() + 2 * GRID_Y; }
 
 int layout_min_cols(int glyph_width) {
   return board_block_w(glyph_width) + 1 + PANEL_MIN_W;
@@ -43,6 +50,8 @@ int layout_compute(Rect bounds, int glyph_width, Layout *out) {
 
   out->square_w = glyph_width + 2 * SQUARE_PAD;
   out->square_h = 1;
+  out->grid_x = GRID_X;
+  out->grid_y = GRID_Y;
 
   out->title = rect_sub(bounds, 0, 0, bounds.w, TITLE_H);
   out->status = rect_sub(bounds, 0, bounds.h - STATUS_H, bounds.w, STATUS_H);

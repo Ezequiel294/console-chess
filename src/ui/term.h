@@ -51,6 +51,15 @@ int term_take_resize(void);
  * the terminal does not answer within the bounded wait. */
 int term_probe_glyph_width(const char *sample);
 
+/* Whether the terminal is worth spending colour on. There is no reliable
+ * query for this — unlike glyph width, nothing answers back — so it is a
+ * heuristic read from the environment: honour NO_COLOR if the user set it,
+ * and treat TERM being unset or "dumb" as no colour. Everything else is
+ * assumed to support it, since the xterm-256 palette this program uses is
+ * decades old and near-universal among terminals that answer to anything
+ * else. */
+int term_supports_color(void);
+
 /* The width assumed when the terminal will not say. Two, because the terminals
  * that answer overwhelmingly answer two for these codepoints, and because a
  * board drawn two-wide on a one-wide terminal has gaps while the reverse

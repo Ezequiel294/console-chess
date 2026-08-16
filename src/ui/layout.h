@@ -18,6 +18,14 @@ typedef struct {
 
   int square_w; /* interior width of one square, in cells */
   int square_h; /* interior height of one square, in cells */
+
+  /* The grid's own top-left corner — the first rule line — as an offset from
+   * board's origin, past the rank label and the file label row. draw_board
+   * and point_to_square both read these rather than each assuming their own
+   * offset, which is what keeps a click aligned with what was actually
+   * drawn. */
+  int grid_x;
+  int grid_y;
 } Layout;
 
 /* The smallest terminal the game fits in, for a given piece glyph width. */
