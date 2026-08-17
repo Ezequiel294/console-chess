@@ -1,8 +1,12 @@
+# move-undo Specification
+
 ## Purpose
 
 Lets players take back a move — the ordinary courtesy of a game played across a table — and redo it if the take-back was itself a mistake.
 
-## ADDED Requirements
+**Status: deferred from live play.** Chess does not actually allow taking back a move you have already made, and undo/redo as a command during an ongoing game turned out to encourage exactly that — a rules violation dressed up as a courtesy. The requirements below describe the mechanism (the move list as an undo stack, full state restoration, redo discarded by a new move) and remain correct at that level; core/history.c's `history_pop_last`, `history_push_node`, `captures_pop_last`, and `hash_history_pop_last` implement it and `GameState.p_redo_head` carries the redo stack. None of it is currently wired to a command a player can reach mid-game. It is reserved for a future "replay a finished game" capability, which would apply the same mechanism to a copy of a finished game's state rather than the game in progress.
+
+## Requirements
 
 ### Requirement: Moves can be undone
 
@@ -73,8 +77,12 @@ An undo SHALL update every view of the game consistently: the board, the capture
 
 ### Requirement: Undo interacts correctly with saving
 
-An undo SHALL be reflected in the autosaved game, so that resuming after an undo resumes the position the player left.
+Dormant, not withdrawn: undo is not reachable during a live game and there is no autosave for it to disagree with (see Status above, and app-shell's Saving is explicit). Should a future change expose undo mid-game, an undo SHALL be reflected in whatever save represents the game, so reloading lands on the position the player actually left rather than one they had already taken back.
 
-#### Scenario: Resume after undo
-- **WHEN** the player undoes a move, quits, and relaunches
-- **THEN** resuming gives the position as it stood after the undo
+#### Scenario: Nothing to reconcile today
+- **WHEN** a game is in progress
+- **THEN** no undo command exists to reach it, so there is no saved position this requirement can contradict
+
+#### Scenario: If undo returns
+- **WHEN** a later change makes undo reachable during play
+- **THEN** the saved game SHALL reflect the undo, and reloading SHALL restore the position left behind rather than the undone one
