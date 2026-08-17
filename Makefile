@@ -72,7 +72,12 @@ all: $(BIN)
 $(BIN): $(OBJ)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BUILDDIR)/%.o: %.c
+# VERSION is a prerequisite because CPPFLAGS bakes its contents into every
+# object. Without it, editing VERSION rebuilds nothing — .d files list only
+# the headers a source read, and VERSION is not one of them — so `make` after
+# a version bump silently relinks a binary still reporting the old version,
+# which is precisely what the release procedure in README.md would then tag.
+$(BUILDDIR)/%.o: %.c VERSION
 	@mkdir -p $(@D)
 	$(CC) $(STD) $(WARN) $(INCLUDE) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
