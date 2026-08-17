@@ -52,7 +52,7 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece) {
  * 3. If the history list is empty, sets the head of the list to the new node.
  * 4. If the history list is not empty, traverses to the end of the list and adds the new node.
  */
-void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3]) {
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3], Move move) {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
   if (p_new_node == NULL) {
     fprintf(stderr, "Memory allocation failed.\n");
@@ -61,17 +61,59 @@ void update_history(History_node_t **pp_history_head, char prev_pos[3], char nex
 
   strcpy(p_new_node->prev_pos, prev_pos);
   strcpy(p_new_node->next_pos, next_pos);
+  p_new_node->move = move;
   p_new_node->p_next = NULL;
 
+  history_push_node(pp_history_head, p_new_node);
+}
+
+History_node_t *history_pop_last(History_node_t **pp_history_head) {
   if (*pp_history_head == NULL) {
-    *pp_history_head = p_new_node;
+    return NULL;
+  }
+  if ((*pp_history_head)->p_next == NULL) {
+    History_node_t *last = *pp_history_head;
+    *pp_history_head = NULL;
+    return last;
+  }
+  History_node_t *p_current = *pp_history_head;
+  while (p_current->p_next->p_next != NULL) {
+    p_current = p_current->p_next;
+  }
+  History_node_t *last = p_current->p_next;
+  p_current->p_next = NULL;
+  return last;
+}
+
+void history_push_node(History_node_t **pp_history_head, History_node_t *node) {
+  node->p_next = NULL;
+  if (*pp_history_head == NULL) {
+    *pp_history_head = node;
   } else {
     History_node_t *p_current = *pp_history_head;
     while (p_current->p_next != NULL) {
       p_current = p_current->p_next;
     }
-    p_current->p_next = p_new_node;
+    p_current->p_next = node;
   }
+}
+
+Captures_node_t *captures_pop_last(Captures_node_t **pp_captures_head) {
+  if (*pp_captures_head == NULL) {
+    return NULL;
+  }
+  if ((*pp_captures_head)->p_next == NULL) {
+    Captures_node_t *last = *pp_captures_head;
+    *pp_captures_head = NULL;
+    return last;
+  }
+  Captures_node_t *p_current = *pp_captures_head;
+  while (p_current->p_next->p_next != NULL) {
+    p_current = p_current->p_next;
+  }
+  Captures_node_t *last = p_current->p_next;
+  p_current->p_next = NULL;
+  return last;
 }
 
 /* Function: free_captures
@@ -150,6 +192,23 @@ void free_hash_history(Hash_node_t *head) {
     head = head->p_next;
     free(tmp);
   }
+}
+
+void hash_history_pop_last(Hash_node_t **pp_hash_head) {
+  if (*pp_hash_head == NULL) {
+    return;
+  }
+  if ((*pp_hash_head)->p_next == NULL) {
+    free(*pp_hash_head);
+    *pp_hash_head = NULL;
+    return;
+  }
+  Hash_node_t *p_current = *pp_hash_head;
+  while (p_current->p_next->p_next != NULL) {
+    p_current = p_current->p_next;
+  }
+  free(p_current->p_next);
+  p_current->p_next = NULL;
 }
 
 int hash_history_length(const Hash_node_t *head) {

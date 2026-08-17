@@ -86,10 +86,14 @@ typedef struct Captures_node_s {
   struct Captures_node_s *p_next;
 } Captures_node_t;
 
-// Linked list to store the moves made
+// Linked list to store the moves made. Carries the full Move, not just the
+// two squares, so that undo can call unmake() with exactly what make() was
+// given — restoring castling rights, the en passant square, and the
+// halfmove clock along with piece placement.
 typedef struct History_node_s {
   char prev_pos[3];
   char next_pos[3];
+  Move move;
   struct History_node_s *p_next;
 } History_node_t;
 
@@ -108,11 +112,23 @@ typedef struct Hash_node_s {
  * saw. Owning them here means there is only ever one head to update.
  */
 typedef struct {
+  /* The position a save file's FEN line records: the game's opening
+   * position, or the position a loaded save/slot started from. p_history_head
+   * holds every move played since, so start_position plus that list is
+   * exactly what save_write() writes and save_read() replays. */
+  Position start_position;
   Position position;
   Captures_node_t *p_captures_white_head;
   Captures_node_t *p_captures_black_head;
   History_node_t *p_history_head;
   Hash_node_t *p_hash_history_head;
+  /* Moves undone but not yet redone, most-recently-undone first. A move
+   * played while this is non-empty discards it. */
+  History_node_t *p_redo_head;
+  /* Where this game was last saved to, or loaded from — empty until the
+   * first save. Saving again reuses this path, so repeated saves of the same
+   * game update one file instead of piling up a new one each time. */
+  char save_path[300];
 } GameState;
 
 #endif /* TYPES_H */

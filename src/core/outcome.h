@@ -15,7 +15,12 @@ typedef enum {
   OUTCOME_STALEMATE,
   OUTCOME_DRAW_FIFTY_MOVE,
   OUTCOME_DRAW_INSUFFICIENT_MATERIAL,
-  OUTCOME_DRAW_REPETITION
+  OUTCOME_DRAW_REPETITION,
+  /* Chosen by a player rather than forced by the rules. outcome() never
+   * returns either: the app layer constructs an Outcome_t with one of these
+   * directly when a player resigns or a draw is agreed. */
+  OUTCOME_RESIGNATION,
+  OUTCOME_DRAW_AGREEMENT
 } Outcome_reason_t;
 
 typedef struct {
@@ -34,5 +39,9 @@ typedef struct {
  * position with no history yet.
  */
 Outcome_t outcome(const Position *pos, const uint64_t *hash_history, int hash_history_len);
+
+/* Whether reason is a termination the players chose — resignation or an
+ * agreed draw — rather than one the rules forced. */
+int outcome_is_player_chosen(Outcome_reason_t reason);
 
 #endif /* OUTCOME_H */

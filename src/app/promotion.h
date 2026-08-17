@@ -11,7 +11,10 @@
  * nothing about Position or GameState: on_choice is called with the piece
  * selected (QUEEN, ROOK, BISHOP, or KNIGHT) just before the overlay pops
  * itself, and applying that choice to the game in progress is entirely the
- * caller's business. Pressing Escape pops without calling on_choice.
+ * caller's business.
+ *
+ * Driven like every other choice screen: ↑/↓ or a click moves the highlight,
+ * Enter chooses. Pressing Escape pops without calling on_choice.
  */
 Screen *promotion_screen(Color color, void (*on_choice)(void *ctx, Piece_type_t choice),
                           void *ctx);

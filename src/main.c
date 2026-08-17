@@ -8,7 +8,8 @@ Console Chess Game
 
 
 #include "app/app.h"
-#include "app/game.h"
+#include "app/mainmenu.h"
+#include "app/settings.h"
 #include "app/toosmall.h"
 #include "core/history.h"
 #include "core/position.h"
@@ -20,7 +21,10 @@ Console Chess Game
 #include "version.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #define PROGRAM_NAME "Console Chess"
 
@@ -41,6 +45,12 @@ static void print_usage(void) {
 
 int main(int argc, char **argv) {
   int ascii = 0;
+  int ascii_forced = 0;
+
+  // Seeds the ids saved games are named with (see save_new_game_path); not
+  // cryptographic, just enough that two games saved in the same session
+  // don't collide.
+  srand((unsigned)time(NULL) ^ (unsigned)getpid());
 
   // Handled before terminal setup or file access, so a broken environment
   // cannot affect these options.
@@ -55,6 +65,7 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--ascii") == 0) {
       ascii = 1;
+      ascii_forced = 1;
       continue;
     }
     printf("Unrecognised option: %s\n\n", argv[i]);
@@ -77,11 +88,21 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // File I/O only, safe on the primary screen. --ascii on the command line
+  // overrides the stored glyph preference for this run without overwriting
+  // it; every other stored setting (colour scheme) applies as-is.
+  settings_load();
+  if (!ascii_forced) {
+    ascii = settings_ascii();
+  }
+
   glyphs_use_ascii(ascii);
   if (!ascii) {
     // Asked on the primary screen, before the alternate one is entered, so the
     // question and its answer never appear in the game display.
-    glyphs_set_width(term_probe_glyph_width(glyph_probe_sample()));
+    int width = term_probe_glyph_width(glyph_probe_sample());
+    settings_set_icon_width(width);
+    glyphs_set_width(width);
   }
 
   if (!term_enter()) {
@@ -89,19 +110,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // main owns the game. The screen borrows it by address, so there is never a
-  // second copy of a list head to get out of step.
+  // main owns the game. Every screen that can start, replace, or load into
+  // it borrows this by address, so there is never a second copy of a list
+  // head to get out of step. Left zeroed here: the main menu's actions (new
+  // game, load a saved game) are what actually populate it.
   GameState state = {0};
-  position_init(&state.position);
-  push_hash(&state.p_hash_history_head, state.position.hash);
 
   app_set_too_small_screen(toosmall_screen());
-  int status = app_run(game_screen(&state));
+  int status = app_run(mainmenu_screen(&state));
 
   free_captures(state.p_captures_white_head);
   free_captures(state.p_captures_black_head);
   free_history(state.p_history_head);
   free_hash_history(state.p_hash_history_head);
+  free_history(state.p_redo_head);
 
   input_shutdown();
   render_shutdown();

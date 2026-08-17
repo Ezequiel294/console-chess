@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
   test_perft();
   test_outcome();
   test_notation();
+  test_save();
 
   printf("%d/%d checks passed\n", g_tests_run - g_tests_failed, g_tests_run);
   return g_tests_failed ? 1 : 0;

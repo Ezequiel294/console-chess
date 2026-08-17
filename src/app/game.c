@@ -1,7 +1,12 @@
 #include "app/game.h"
 
+#include "app/confirm.h"
+#include "app/gameover.h"
+#include "app/help.h"
+#include "app/history_view.h"
 #include "app/promotion.h"
 #include "app/save.h"
+#include "app/settings.h"
 #include "core/board.h"
 #include "core/history.h"
 #include "core/movegen.h"
@@ -16,34 +21,15 @@
 #include "version.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-/* --- Palette -------------------------------------------------------------
+/* --- Palette ---------------------------------------------------------------
  *
- * xterm-256 indices. Squares carry no colour of their own — a checkerboard of
- * filled cells reads as a wall of colour in a terminal and fights whatever
- * theme it already has; the grid rules are enough to say where a square ends.
- * Background is spent only on what is worth spotting instantly: the piece
- * picked up, the move just played, where a selected piece may capture, and a
- * king under attack.
- *
- * All four are deep, unsaturated shades rather than bright ones: a highlight
- * should read as the square having been tinted, not as a block of colour laid
- * over the board. Dark enough, too, that the piece colours below work on top
- * of them and need no special case.
- *
- * Every tint has a shape fallback alongside it, used instead of the tint
- * whenever term_supports_color() says colour is not worth spending — a corner
- * glyph in one of the two cells of padding every square has around its piece,
- * which is exactly wide enough for a marker without ever touching the piece
- * itself. Check is the one state that gets both at once, in either mode: it
- * is the one worth over-signalling.
+ * Piece and rule colours are fixed; the four square tints and the check mark
+ * come from settings_palette(), so the Settings overlay's colour-scheme
+ * option can switch them at runtime. See settings.h for the presets.
  */
-#define C_SQUARE_LAST 22      /* dark green: the move just played */
-#define C_SQUARE_SELECTED 58  /* dark olive: the piece picked up */
-#define C_SQUARE_CAPTURE 52   /* dark red: a legal capture for the selection */
-#define C_SQUARE_CHECK 130    /* dark amber: the checked king's square */
-#define C_MARK_CHECK_FG 208   /* orange: the check corner mark, both modes */
 #define C_PIECE_WHITE 231
 /* Black on an unbackgrounded square would be invisible on a dark terminal, so
  * it sits at a grey that reads against either. */
@@ -51,10 +37,11 @@
 #define C_RULE 244
 #define C_LABEL 246
 #define C_HINT 244
+#define C_HINT_DIM 240
 
 /* Legal, empty destination: centred, shape-based already, so it is identical
  * in colour and monochrome mode. */
-#define MARK_DOT 0x25CFu /* ● */
+#define MARK_DOT 0x2022u /* • smaller than the U+25CF full circle */
 /* Monochrome fallbacks, left padding cell — mutually exclusive with each
  * other, since at most one of selected/capture/last-move ever applies to a
  * given square. */
@@ -83,13 +70,22 @@ typedef struct {
   char typed[3];
   int typed_len;
 
-  /* The keyboard cursor: a second, independent way to name a square, moved by
-   * the arrow keys and read on Enter when nothing has been typed. Held in
-   * screen space (0-7, top-left of what is currently drawn) rather than board
-   * indices, so an arrow key moves the cursor where it visibly points
-   * regardless of orientation — the same reasoning point_to_square applies to
-   * a click. */
+  /* The board cursor: a third way to name a square, moved by the arrow keys
+   * and read on Enter when nothing has been typed. Held in screen space (0-7,
+   * top-left of what is currently drawn) rather than board indices, so an
+   * arrow key moves the cursor where it visibly points regardless of
+   * orientation — the same reasoning point_to_square applies to a click.
+   *
+   * It is only there when it is being used. Every turn starts with
+   * cursor_active clear and nothing pointed at; the first arrow press brings
+   * it into existence at the centre of the board, and naming a square by any
+   * means (click, typed coordinates, or the cursor itself) puts it on that
+   * square. Completing a move or cancelling the selection takes it away
+   * again. The cursor is what the highlighted rank and file labels report, so
+   * a highlighted label always means "this is the square in hand" rather than
+   * being a permanent fixture the player has to learn to ignore. */
   int cursor_row, cursor_col;
+  int cursor_active;
 
   /* The layout the most recent frame was drawn with, so a click is hit-tested
    * against the geometry it actually saw rather than one recomputed — possibly
@@ -101,12 +97,25 @@ typedef struct {
    * from the environment; see term_supports_color(). */
   int use_color;
 
-  /* Between turns: the board has flipped and the next player has not yet said
-   * they are looking. In pass-and-play that gesture is the handoff, and a human
-   * paces it better than a constant does. */
+  /* Between turns: the board is about to flip and the next player has not yet
+   * said they are looking. In pass-and-play that gesture is the handoff, and
+   * a human paces it better than a constant does — this is the only way the
+   * board changes hands, deliberately: it doubles as the "I'm ready" signal a
+   * future timed mode needs, so it is never skipped or made optional. */
   int awaiting_handoff;
 
+  int has_draw_offer;
+  Color draw_offer_by;
+
+  /* Set once a game-ending outcome is reached. The transition to the result
+   * screen happens on this screen's next handled event (see the top of
+   * game_handle): a screen can only return one Cmd_t, and several endings
+   * (resignation, a draw acceptance, a promotion that also mates) are
+   * discovered while a different overlay is on top of this one, where
+   * replacing this screen out from under it is not expressible in one step. */
   int game_over;
+  Outcome_t pending_outcome;
+
   char message[96];
 } Game_t;
 
@@ -126,59 +135,28 @@ static Promotion_request_t g_promo_request;
 
 static Color side_to_move(const Game_t *g) { return g->state->position.side_to_move; }
 
+/* Saving the opening position with no moves played would create a file with
+ * nothing worth loading. */
+static int can_save(const Game_t *g) { return g->state->p_history_head != NULL; }
+
 static void clear_entry(Game_t *g) {
   g->typed[0] = '\0';
   g->typed_len = 0;
   g->sel_i = -1;
   g->sel_j = -1;
+  g->cursor_active = 0;
 }
 
-/* --- Saving and loading, temporarily -------------------------------------
- *
- * Both bindings belong to app-shell-and-persistence, which replaces the file
- * format, saves after every move, and offers a resume prompt on launch. They
- * exist here only so the capability is not dark between the two changes.
- * Delete this section, the app/save.h include, and the hint-line entries when
- * that change lands.
- */
-
-/* A game with nothing in it yet: the opening position, no moves played. */
-static int game_is_untouched(const Game_t *g) { return g->state->p_history_head == NULL; }
-
-/* Loading is offered only on an untouched game.
- *
- * A load replaces everything, and `l` sits one key away from the squares a
- * player spends the game typing. Restricting it to a game with no moves in it
- * means a mistyped key can cost at most a game that had not started. */
-static int can_load(const Game_t *g) {
-  return !g->game_over && game_is_untouched(g);
+/* Puts the cursor on a board square, in whichever screen position that square
+ * currently occupies. */
+static void cursor_to_square(Game_t *g, int i, int j) {
+  g->cursor_row = g->flipped ? 7 - i : i;
+  g->cursor_col = g->flipped ? 7 - j : j;
+  g->cursor_active = 1;
 }
 
-/* Saving is the mirror image, and refused on an untouched game.
- *
- * There is nothing in the opening position worth keeping, and writing it would
- * destroy a real save — the one the player is one keystroke away from loading.
- * The two commands are therefore never available at the same time. */
-static int can_save(const Game_t *g) {
-  return !game_is_untouched(g);
-}
-
-static const char *load_message(Load_result_t result) {
-  switch (result) {
-  case LOAD_OK:
-    return "Game loaded.";
-  case LOAD_NO_FILE:
-    return "No saved game found.";
-  case LOAD_WRONG_FORMAT:
-    return "That save was written by an incompatible build.";
-  case LOAD_CORRUPT:
-    return "The save file is incomplete or corrupted.";
-  }
-  return "Could not load the saved game.";
-}
-
-/* The loaded game's last move, so a resumed game shows the same highlight a
- * played one would. */
+/* The loaded/resumed/undone/redone game's last move, so the highlight always
+ * matches whatever is actually on top of the history list. */
 static void highlight_last_move(Game_t *g) {
   g->last_from_i = -1;
   g->last_from_j = -1;
@@ -194,37 +172,6 @@ static void highlight_last_move(Game_t *g) {
   }
   square_to_index(last->prev_pos, &g->last_from_i, &g->last_from_j);
   square_to_index(last->next_pos, &g->last_to_i, &g->last_to_j);
-}
-
-static void load_into(Game_t *g) {
-  /* load_game overwrites the state wholesale on success, so the lists it
-   * replaces are reachable only through heads taken beforehand. */
-  Captures_node_t *old_white = g->state->p_captures_white_head;
-  Captures_node_t *old_black = g->state->p_captures_black_head;
-  History_node_t *old_history = g->state->p_history_head;
-  Hash_node_t *old_hashes = g->state->p_hash_history_head;
-
-  Load_result_t result = load_game(g->state, NULL);
-  snprintf(g->message, sizeof(g->message), "%s", load_message(result));
-  if (result != LOAD_OK) {
-    return;
-  }
-
-  free_captures(old_white);
-  free_captures(old_black);
-  free_history(old_history);
-  free_hash_history(old_hashes);
-  /* A FEN save carries no move history, so repetition is tracked fresh from
-   * the loaded position: any repetition claim from before the save is lost,
-   * a limitation of this interim format. */
-  g->state->p_hash_history_head = NULL;
-  push_hash(&g->state->p_hash_history_head, g->state->position.hash);
-
-  clear_entry(g);
-  g->awaiting_handoff = 0;
-  g->game_over = 0;
-  g->flipped = (side_to_move(g) == BLACK);
-  highlight_last_move(g);
 }
 
 /* --- Rendering ---------------------------------------------------------- */
@@ -245,15 +192,30 @@ static int find_king(const Position *pos, Color side, int *i, int *j) {
   return 0;
 }
 
-/* Which of the three mutually exclusive background states a square is in.
- * Priority breaks the one case where two could apply at once: reselecting the
- * piece that was itself the destination of the last move. Selection is the
- * more urgent thing to see. */
-typedef enum { SQ_NONE, SQ_SELECTED, SQ_CAPTURE_DEST, SQ_LAST_MOVE } Square_priority_t;
+/* Which of the four mutually exclusive background states a square is in.
+ * Priority breaks the cases where two could apply at once: reselecting the
+ * piece that was itself the destination of the last move, or the cursor
+ * sitting on a square that is already marked for some other reason. Selection
+ * outranks everything, and the cursor outranks the rest — it is the one thing
+ * the player is actively moving, so it must never be the marking that loses. */
+typedef enum {
+  SQ_NONE,
+  SQ_SELECTED,
+  SQ_CURSOR,
+  SQ_CAPTURE_DEST,
+  SQ_LAST_MOVE
+} Square_priority_t;
 
 static Square_priority_t square_priority(const Game_t *g, int i, int j, int is_capture_dest) {
   if (i == g->sel_i && j == g->sel_j) {
     return SQ_SELECTED;
+  }
+  if (g->cursor_active) {
+    int cursor_i = g->flipped ? 7 - g->cursor_row : g->cursor_row;
+    int cursor_j = g->flipped ? 7 - g->cursor_col : g->cursor_col;
+    if (i == cursor_i && j == cursor_j) {
+      return SQ_CURSOR;
+    }
   }
   if (is_capture_dest) {
     return SQ_CAPTURE_DEST;
@@ -266,13 +228,18 @@ static Square_priority_t square_priority(const Game_t *g, int i, int j, int is_c
 }
 
 static int priority_bg(Square_priority_t p) {
+  const Palette_t *pal = settings_palette();
   switch (p) {
   case SQ_SELECTED:
-    return C_SQUARE_SELECTED;
+  /* The cursor is drawn as a selection because that is what it is about to
+   * become: pressing Enter on it either picks that piece up or plays the move
+   * to it. One highlight for "the square in hand", however it was named. */
+  case SQ_CURSOR:
+    return pal->square_selected;
   case SQ_CAPTURE_DEST:
-    return C_SQUARE_CAPTURE;
+    return pal->square_capture;
   case SQ_LAST_MOVE:
-    return C_SQUARE_LAST;
+    return pal->square_last;
   case SQ_NONE:
     break;
   }
@@ -285,6 +252,7 @@ static int priority_bg(Square_priority_t p) {
 static uint32_t priority_mark(Square_priority_t p) {
   switch (p) {
   case SQ_SELECTED:
+  case SQ_CURSOR:
     return MARK_SELECTED;
   case SQ_CAPTURE_DEST:
     return MARK_CAPTURE;
@@ -306,6 +274,7 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
   int grid_x = lay->grid_x;
   int grid_y = lay->grid_y;
   int grid_w = 8 * (sq_w + 1) + 1;
+  const Palette_t *pal = settings_palette();
 
   /* Legal destinations of the selected piece, queried fresh every frame
    * rather than cached: cheap at human speed, and it makes a stale-cache bug
@@ -331,8 +300,9 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
     int x = grid_x + f * (sq_w + 1) + 1 + sq_w / 2;
     /* Reversed video on the cursor's own column, in both rows — a shape-based
      * highlight, distinct from any tint, that touches only the labels and
-     * never the board's interior. */
-    uint8_t attr = (f == g->cursor_col) ? ATTR_REVERSE : ATTR_NONE;
+     * never the board's interior. Nothing is highlighted while there is no
+     * cursor, so a highlighted label always names the square in hand. */
+    uint8_t attr = (g->cursor_active && f == g->cursor_col) ? ATTR_REVERSE : ATTR_NONE;
     draw_text(r, x, 0, label, C_LABEL, COLOR_DEFAULT, attr);
     draw_text(r, x, grid_y + 8 * 2 + 1, label, C_LABEL, COLOR_DEFAULT, attr);
   }
@@ -363,7 +333,7 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
     int y = grid_y + row * 2 + 1;
 
     char rank[2] = {(char)('8' - i), '\0'};
-    uint8_t rank_attr = (row == g->cursor_row) ? ATTR_REVERSE : ATTR_NONE;
+    uint8_t rank_attr = (g->cursor_active && row == g->cursor_row) ? ATTR_REVERSE : ATTR_NONE;
     draw_text(r, 0, y, rank, C_LABEL, COLOR_DEFAULT, rank_attr);
     draw_text(r, grid_x + grid_w + 1, y, rank, C_LABEL, COLOR_DEFAULT, rank_attr);
 
@@ -397,7 +367,7 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
       if (g->use_color) {
         bg = priority_bg(prio);
         if (prio == SQ_NONE && is_check_sq) {
-          bg = C_SQUARE_CHECK;
+          bg = pal->square_check;
         }
       }
 
@@ -436,7 +406,7 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
       /* Check: additive, in both modes, in the right padding cell — the one
        * marking that is never only a fallback. */
       if (is_check_sq) {
-        int mark_fg = g->use_color ? C_MARK_CHECK_FG : COLOR_DEFAULT;
+        int mark_fg = g->use_color ? pal->mark_check_fg : COLOR_DEFAULT;
         draw_glyph(r, x + sq_w, y, MARK_CHECK, 1, mark_fg, bg, ATTR_BOLD);
       }
     }
@@ -474,8 +444,8 @@ static void draw_panel(const Game_t *g, Rect r) {
   y++;
 
   /* The history list is oldest first and the interesting end is the newest, so
-   * the tail that fits is what is shown. The scrollable full list is a screen
-   * of its own in a later change. */
+   * the tail that fits is what is shown. The full scrollable list is the
+   * History screen (Shift-H). */
   int room = inner.h - y;
   if (room < 1) {
     return;
@@ -497,6 +467,27 @@ static void draw_panel(const Game_t *g, Rect r) {
   }
 }
 
+/* One command key and whether it currently does anything — the status bar's
+ * unit of display. Shown dimmed rather than omitted when unavailable, so a
+ * key that does nothing right now is still visibly a key (task: available
+ * commands are visible). */
+typedef struct {
+  const char *key;
+  const char *label;
+  int available;
+} Hint_t;
+
+static void draw_hints(Rect r, int y, const Hint_t *hints, int n) {
+  int x = 0;
+  for (int i = 0; i < n && x < r.w; i++) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%s%s %s", i == 0 ? "" : "  ", hints[i].key, hints[i].label);
+    uint8_t attr = hints[i].available ? ATTR_NONE : ATTR_DIM;
+    int fg = hints[i].available ? C_HINT : C_HINT_DIM;
+    x += draw_text(r, x, y, buf, fg, COLOR_DEFAULT, attr);
+  }
+}
+
 static void draw_status(const Game_t *g, Rect r) {
   char line[160];
   char mover_label[24];
@@ -507,9 +498,12 @@ static void draw_status(const Game_t *g, Rect r) {
   draw_hline(r, 0, 0, r.w, 0x2500u, C_RULE, COLOR_DEFAULT, ATTR_NONE);
 
   if (g->game_over) {
-    snprintf(line, sizeof(line), "%s", g->message);
+    snprintf(line, sizeof(line), "%s  ·  press any key to continue", g->message);
   } else if (g->awaiting_handoff) {
-    snprintf(line, sizeof(line), "%s to move — press SPACE", mover_label);
+    snprintf(line, sizeof(line), "%s to move — press SPACE   %s", mover_label, g->message);
+  } else if (g->has_draw_offer) {
+    const char *offerer = (g->draw_offer_by == WHITE) ? "White" : "Black";
+    snprintf(line, sizeof(line), "%s: %s offered a draw   %s", mover_label, offerer, g->message);
   } else if (g->sel_i >= 0) {
     char from[3];
     index_to_square(g->sel_i, g->sel_j, from);
@@ -519,20 +513,19 @@ static void draw_status(const Game_t *g, Rect r) {
   }
   draw_text(r, 0, 1, line, COLOR_DEFAULT, COLOR_DEFAULT, ATTR_NONE);
 
-  /* Each hint appears only while its key does anything, which is also what
-   * documents when it stops. Loading and saving are mutually exclusive, so the
-   * line never has to carry both. Every variant fits the narrowest terminal the
-   * game runs in: the status bar clips rather than wraps, but a clipped hint is
-   * still a hint nobody can read. */
-  const char *hints;
   if (g->game_over) {
-    hints = "s save  ·  q quit";
-  } else if (can_load(g)) {
-    hints = "square+Enter · Esc clear · F flip · l load · q quit";
-  } else {
-    hints = "square+Enter · Esc clear · F flip · s save · q quit";
+    return; /* the result screen replaces this one on the next event */
   }
-  draw_text(r, 0, 2, hints, C_HINT, COLOR_DEFAULT, ATTR_DIM);
+
+  Hint_t hints[] = {
+      {"s", "save", can_save(g)},
+      {"H", "history", 1},
+      {"x", "resign", 1},
+      {"o", "draw", 1},
+      {"?", "help", 1},
+      {"q", "quit", 1},
+  };
+  draw_hints(r, 2, hints, (int)(sizeof(hints) / sizeof(hints[0])));
 }
 
 static void game_render(void *ctx, Rect r) {
@@ -574,10 +567,26 @@ static const char *outcome_message(Outcome_t oc) {
     return "Draw — insufficient material.";
   case OUTCOME_DRAW_REPETITION:
     return "Draw — threefold repetition.";
+  case OUTCOME_RESIGNATION:
+    return (oc.winner == WHITE) ? "Black resigns — White wins!" : "White resigns — Black wins!";
+  case OUTCOME_DRAW_AGREEMENT:
+    return "Draw — by agreement.";
   case OUTCOME_IN_PROGRESS:
     break;
   }
   return "";
+}
+
+/* Every move begins the handover gesture: the board is about to flip and the
+ * next player confirms with Space before it does. */
+static void begin_turn(Game_t *g) { g->awaiting_handoff = 1; }
+
+static void apply_outcome(Game_t *g, Outcome_t oc) {
+  g->game_over = 1;
+  g->pending_outcome = oc;
+  g->awaiting_handoff = 0;
+  g->has_draw_offer = 0;
+  snprintf(g->message, sizeof(g->message), "%s", outcome_message(oc));
 }
 
 /* Applies a legal move chosen by the player — directly from submit(), or from
@@ -585,10 +594,18 @@ static const char *outcome_message(Outcome_t oc) {
  * follows: captures, history, check-repetition bookkeeping, and the outcome
  * that decides whether the game just ended. */
 static void finish_move(Game_t *g, Move move) {
+  GameState *state = g->state;
   Color mover = side_to_move(g);
-  Captures_node_t **captures = (mover == WHITE) ? &g->state->p_captures_white_head
-                                                 : &g->state->p_captures_black_head;
 
+  /* Playing a move rather than responding to a pending offer is a decline:
+   * the game continues, and the offer is gone either way. (Side to move
+   * cannot itself distinguish "the offerer moved on" from "the other side
+   * declined by moving" in pass-and-play, since nothing changes side_to_move
+   * except a move — either reading clears a stale offer correctly.) */
+  g->has_draw_offer = 0;
+
+  Captures_node_t **captures = (mover == WHITE) ? &state->p_captures_white_head
+                                                 : &state->p_captures_black_head;
   if (move.captured != FREE) {
     Color captured_color = (mover == WHITE) ? BLACK : WHITE;
     update_captures(captures, (Piece_t){.color = captured_color, .type = move.captured});
@@ -599,8 +616,8 @@ static void finish_move(Game_t *g, Move move) {
   index_to_square(move.from_i, move.from_j, from);
   index_to_square(move.to_i, move.to_j, to);
 
-  make(&g->state->position, move);
-  update_history(&g->state->p_history_head, from, to);
+  make(&state->position, move);
+  update_history(&state->p_history_head, from, to, move);
 
   g->last_from_i = move.from_i;
   g->last_from_j = move.from_j;
@@ -612,20 +629,27 @@ static void finish_move(Game_t *g, Move move) {
 
   /* hash_history excludes the position just reached, per outcome()'s
    * contract, so the lookup happens before this move's hash is pushed. */
-  int hist_len = hash_history_length(g->state->p_hash_history_head);
+  int hist_len = hash_history_length(state->p_hash_history_head);
   uint64_t hashes[hist_len > 0 ? hist_len : 1];
-  hash_history_to_array(g->state->p_hash_history_head, hashes);
-  Outcome_t oc = outcome(&g->state->position, hashes, hist_len);
+  hash_history_to_array(state->p_hash_history_head, hashes);
+  Outcome_t oc = outcome(&state->position, hashes, hist_len);
 
-  push_hash(&g->state->p_hash_history_head, g->state->position.hash);
+  push_hash(&state->p_hash_history_head, state->position.hash);
 
   if (oc.reason != OUTCOME_IN_PROGRESS) {
-    g->game_over = 1;
-    snprintf(g->message, sizeof(g->message), "%s", outcome_message(oc));
+    apply_outcome(g, oc);
   } else {
-    g->awaiting_handoff = 1;
+    begin_turn(g);
   }
 }
+
+/* Undo and redo are deliberately not offered here: chess does not allow
+ * taking back a move you have already made, only reviewing a finished game
+ * move by move. The move list is still kept as full Move structs (not just
+ * square pairs) and core/history.c still carries history_pop_last,
+ * history_push_node, captures_pop_last, and hash_history_pop_last precisely
+ * so a future "replay a finished game" mode can unmake/make through it —
+ * against a copy of a finished game's state, never the game in progress. */
 
 static void on_promotion_choice(void *ctx, Piece_type_t choice) {
   Promotion_request_t *req = (Promotion_request_t *)ctx;
@@ -643,7 +667,7 @@ static void on_promotion_choice(void *ctx, Piece_type_t choice) {
  * and must not be able to: that is what keeps the keyboard path from decaying
  * into a second-class path that quietly breaks, a real risk given that the
  * game must stay playable over SSH. */
-static void select_square(Game_t *g, int i, int j, Cmd_t *cmd) {
+static void select_square_core(Game_t *g, int i, int j, Cmd_t *cmd) {
   if (g->sel_i < 0) {
     Piece_t piece = g->state->position.board[i][j];
     if (piece.type == FREE || piece.color != side_to_move(g)) {
@@ -691,6 +715,12 @@ static void select_square(Game_t *g, int i, int j, Cmd_t *cmd) {
 
   if (match_count == 1) {
     finish_move(g, matches[0]);
+    /* The common case: no overlay was involved, so this event's Cmd_t can
+     * take the player straight to the result screen instead of waiting for
+     * one more keypress (see game_over's handling at the top of handle()). */
+    if (g->game_over) {
+      *cmd = (Cmd_t){CMD_REPLACE, gameover_screen(g->state, g->pending_outcome, g->flipped)};
+    }
     return;
   }
 
@@ -703,6 +733,20 @@ static void select_square(Game_t *g, int i, int j, Cmd_t *cmd) {
   }
   *cmd = (Cmd_t){CMD_PUSH, promotion_screen(side_to_move(g), on_promotion_choice,
                                              &g_promo_request)};
+}
+
+/* Naming a square also moves the cursor onto it, whichever producer named it,
+ * so the highlighted rank and file labels report the same square the board is
+ * highlighting. A square named while nothing ends up selected — a completed
+ * move, a cancelled selection, a click on an empty square with nothing in
+ * hand — leaves nothing to point at, and the cursor goes away with it. */
+static void select_square(Game_t *g, int i, int j, Cmd_t *cmd) {
+  select_square_core(g, i, j, cmd);
+  if (g->sel_i >= 0) {
+    cursor_to_square(g, i, j);
+  } else {
+    g->cursor_active = 0;
+  }
 }
 
 /* The typed-coordinate producer: parses the status bar's buffer into a square
@@ -740,10 +784,28 @@ static void type_char(Game_t *g, uint32_t ch) {
   }
 }
 
-/* Moves the keyboard cursor one square, in screen space, clamped to the
- * board — so an arrow key always moves the cursor where it visibly points,
- * regardless of orientation, the same way a click already does. */
+/* Where the cursor appears when an arrow key summons it: screen-space centre,
+ * on the near side of the four middle squares. No square is more than four
+ * steps away from it, and the player's own back ranks — where most of the
+ * pieces they are reaching for sit — are the closer half. */
+#define CURSOR_HOME_ROW 4
+#define CURSOR_HOME_COL 4
+
+/* Moves the board cursor one square, in screen space, clamped to the board —
+ * so an arrow key always moves the cursor where it visibly points, regardless
+ * of orientation, the same way a click already does.
+ *
+ * The first arrow press of a turn only summons the cursor, at the centre; it
+ * does not also step. Stepping from wherever the cursor happened to be left
+ * last turn would mean the same key does something different depending on
+ * history the player can no longer see. */
 static void move_cursor(Game_t *g, int drow, int dcol) {
+  if (!g->cursor_active) {
+    g->cursor_row = CURSOR_HOME_ROW;
+    g->cursor_col = CURSOR_HOME_COL;
+    g->cursor_active = 1;
+    return;
+  }
   g->cursor_row += drow;
   g->cursor_col += dcol;
   if (g->cursor_row < 0) {
@@ -758,18 +820,283 @@ static void move_cursor(Game_t *g, int drow, int dcol) {
   }
 }
 
+/* --- Commands ------------------------------------------------------------- */
+
+/* Once a game has been saved once, it is assigned a path (GameState.save_path)
+ * that every later save of the same game reuses, so saving repeatedly
+ * updates one file instead of collecting a new one each time; loading a game
+ * carries its path over the same way (see savedgames.c), so continuing a
+ * loaded game and saving it again still updates that same file. */
+static void save_game_now(Game_t *g) {
+  if (!can_save(g)) {
+    snprintf(g->message, sizeof(g->message), "Nothing to save yet — play a move first.");
+    return;
+  }
+  if (g->state->save_path[0] == '\0') {
+    if (!save_new_game_path(g->state->save_path, sizeof(g->state->save_path))) {
+      snprintf(g->message, sizeof(g->message), "Could not save.");
+      return;
+    }
+  }
+  int ok = save_write(g->state->save_path, g->state);
+  snprintf(g->message, sizeof(g->message), "%s", ok ? "Saved." : "Could not save.");
+}
+
+/* The quit picker: replaces a plain yes/no confirmation now that there is no
+ * autosave to fall back on — leaving without saving is a real, permanent
+ * loss, so quitting is the moment saving is offered directly rather than
+ * assumed. Only two options when there is nothing to save yet. */
+#define QUIT_ITEM_COUNT 3
+
+typedef struct {
+  Game_t *game;
+  int selected;
+  int option_count;
+  int row_y[QUIT_ITEM_COUNT];
+} Quit_ctx_t;
+
+static Quit_ctx_t g_quit_ctx;
+
+static void quit_on_enter(void *ctx) {
+  Quit_ctx_t *qc = (Quit_ctx_t *)ctx;
+  qc->option_count = can_save(qc->game) ? 3 : 2;
+  /* Cancel — the last option in both label sets. Two of the three choices
+   * here end the program, one of them discarding the game, so the overlay
+   * opens on the one that does nothing; leaving is a deliberate arrow key
+   * away rather than the thing a stray Enter does. */
+  qc->selected = qc->option_count - 1;
+}
+
+static const char *const QUIT_LABELS_WITH_SAVE[QUIT_ITEM_COUNT] = {
+    "Save and quit",
+    "Quit without saving",
+    "Cancel",
+};
+static const char *const QUIT_LABELS_NO_SAVE[QUIT_ITEM_COUNT] = {
+    "Quit",
+    "Cancel",
+    NULL,
+};
+
+static void quit_render(void *ctx, Rect r) {
+  Quit_ctx_t *qc = (Quit_ctx_t *)ctx;
+  const char *const *labels = (qc->option_count == 3) ? QUIT_LABELS_WITH_SAVE : QUIT_LABELS_NO_SAVE;
+
+  int w = 30, h = 4 + qc->option_count;
+  int x = (r.w - w) / 2, y = (r.h - h) / 2;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  Rect box = rect_sub(r, x, y, w, h);
+  draw_fill(box, ' ', COLOR_DEFAULT, 236, ATTR_NONE);
+  draw_box(box, 250, 236, ATTR_NONE);
+  Rect inner = rect_inset(box, 2, 1);
+  draw_text(inner, 0, 0, "Quit the game?", 250, 236, ATTR_BOLD);
+
+  for (int k = 0; k < qc->option_count; k++) {
+    uint8_t attr = (k == qc->selected) ? ATTR_REVERSE : ATTR_NONE;
+    draw_text(inner, 0, 2 + k, labels[k], 250, 236, attr);
+    qc->row_y[k] = inner.y + 2 + k;
+  }
+
+  app_draw_bottom_hint(r, "↑/↓ + Enter, or click to select  ·  Esc cancel");
+}
+
+/* Option indices are the same in both label sets: 0 acts, 1 or (no-save)
+ * cancels or quits, whichever the option count implies. */
+static Cmd_t quit_activate(Quit_ctx_t *qc, int k) {
+  Game_t *g = qc->game;
+  if (qc->option_count == 3) {
+    switch (k) {
+    case 0:
+      save_game_now(g);
+      return (Cmd_t){CMD_QUIT, NULL};
+    case 1:
+      return (Cmd_t){CMD_QUIT, NULL};
+    default:
+      return (Cmd_t){CMD_POP, NULL};
+    }
+  }
+  switch (k) {
+  case 0:
+    return (Cmd_t){CMD_QUIT, NULL};
+  default:
+    return (Cmd_t){CMD_POP, NULL};
+  }
+}
+
+static Cmd_t quit_handle(void *ctx, const Event_t *ev) {
+  Quit_ctx_t *qc = (Quit_ctx_t *)ctx;
+
+  /* A click only moves the highlight; Enter is the one way to act on it. The
+   * stakes here are the whole game, so a stray click must not be able to end
+   * it. */
+  if (ev->type == EV_MOUSE && ev->mouse.kind == MOUSE_PRESS && ev->mouse.button == 0) {
+    for (int k = 0; k < qc->option_count; k++) {
+      if (ev->mouse.row == qc->row_y[k]) {
+        qc->selected = k;
+        break;
+      }
+    }
+    return CMD_STAY;
+  }
+  if (ev->type != EV_KEY) {
+    return CMD_STAY;
+  }
+  if (ev->key.name == KEY_ESCAPE) {
+    return (Cmd_t){CMD_POP, NULL};
+  }
+  if (ev->key.name == KEY_UP) {
+    qc->selected = (qc->selected - 1 + qc->option_count) % qc->option_count;
+    return CMD_STAY;
+  }
+  if (ev->key.name == KEY_DOWN) {
+    qc->selected = (qc->selected + 1) % qc->option_count;
+    return CMD_STAY;
+  }
+  if (ev->key.name == KEY_ENTER) {
+    return quit_activate(qc, qc->selected);
+  }
+  return CMD_STAY;
+}
+
+static Screen *quit_screen(Game_t *g) {
+  static Screen screen;
+  g_quit_ctx.game = g;
+  screen.on_enter = quit_on_enter;
+  screen.on_exit = NULL;
+  screen.handle = quit_handle;
+  screen.render = quit_render;
+  screen.ctx = &g_quit_ctx;
+  screen.opaque = 0;
+  return &screen;
+}
+
+/* Resigning is the side to move's own choice, so the only question worth
+ * asking is "are you sure" — the confirmation names what is being given up
+ * rather than asking which player is speaking.
+ *
+ * It used to ask which side resigns instead, on the grounds that
+ * pass-and-play shares one keyboard and side_to_move only changes on an
+ * actual move, so the program cannot tell the two players apart. That is
+ * true, and it does mean resigning strictly out of turn is no longer
+ * expressible; but the handover gesture already establishes whose turn it is
+ * before either player touches a key, and making everyone answer "who" every
+ * time to preserve a case that essentially never comes up was the worse
+ * trade. */
+static Cmd_t on_resign_confirm(void *ctx) {
+  Game_t *g = (Game_t *)ctx;
+  Outcome_t oc = {.reason = OUTCOME_RESIGNATION,
+                  .winner = (side_to_move(g) == WHITE) ? BLACK : WHITE};
+  apply_outcome(g, oc);
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+static Cmd_t on_resign_cancel(void *ctx) {
+  (void)ctx;
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+static Cmd_t resign(Game_t *g) {
+  const char *winner = (side_to_move(g) == WHITE) ? "Black" : "White";
+  char msg[96];
+  snprintf(msg, sizeof(msg), "Resign? %s will win.", winner);
+  return (Cmd_t){CMD_PUSH, confirm_screen(msg, on_resign_confirm, on_resign_cancel, g)};
+}
+
+/* A draw offer is one keypress, not two. It used to take two — the first
+ * recorded the offer and the second opened the response — because in
+ * pass-and-play both players share a keyboard and nothing but an actual move
+ * changes side_to_move, so 'o' pressed twice could not be told apart from two
+ * different people pressing it. But nothing on screen said a second press was
+ * what came next, which made the first press look like it had simply failed.
+ * The two players are in the same room: the offer and the answer are one
+ * exchange, and the prompt names both sides explicitly so whoever is holding
+ * the keyboard knows which of them it is addressed to. */
+static Cmd_t on_draw_accept(void *ctx) {
+  Game_t *g = (Game_t *)ctx;
+  Outcome_t oc = {.reason = OUTCOME_DRAW_AGREEMENT, .winner = NONE};
+  apply_outcome(g, oc);
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+static Cmd_t on_draw_decline(void *ctx) {
+  Game_t *g = (Game_t *)ctx;
+  g->has_draw_offer = 0;
+  g->message[0] = '\0';
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+static Cmd_t offer_draw(Game_t *g) {
+  g->has_draw_offer = 1;
+  g->draw_offer_by = side_to_move(g);
+  g->message[0] = '\0';
+
+  const char *offerer = (g->draw_offer_by == WHITE) ? "White" : "Black";
+  const char *other = (g->draw_offer_by == WHITE) ? "Black" : "White";
+  char msg[80];
+  snprintf(msg, sizeof(msg), "%s offered a draw — does %s accept?", offerer, other);
+  return (Cmd_t){CMD_PUSH, confirm_screen(msg, on_draw_accept, on_draw_decline, g)};
+}
+
+/* --- Input ---------------------------------------------------------------- */
+
 static Cmd_t game_handle(void *ctx, const Event_t *ev) {
   Game_t *g = (Game_t *)ctx;
-  Cmd_t quit = {CMD_QUIT, NULL};
+
+  /* A game-ending action discovered while some other screen (promotion,
+   * resignation) was on top could not replace this screen directly; it is
+   * caught up on here, the moment this screen is handling an event again.
+   * g->flipped carries over unchanged, so the result screen shows the board
+   * in the same orientation the player was already looking at rather than
+   * recomputing one — nothing here should look like the board just flipped. */
+  if (g->game_over) {
+    return (Cmd_t){CMD_REPLACE, gameover_screen(g->state, g->pending_outcome, g->flipped)};
+  }
 
   if (ev->type == EV_MOUSE && ev->mouse.kind == MOUSE_WHEEL) {
     /* Deliberately discarded. Alternate scroll is already off (see term.c),
      * so this is the only place wheel motion can still reach — and the board
      * has nothing to scroll. It must not alter the selection, make a move, or
-     * be mistaken for keyboard input; the history screen elsewhere is the
-     * consumer these events are actually for. */
+     * be mistaken for keyboard input; the history screen is the consumer
+     * these events are actually for. */
     return CMD_STAY;
   }
+
+  /* Commands that do not alter the position: available on either side's
+   * turn, and even while awaiting the handoff — checked before that gate. */
+  if (ev->type == EV_KEY && ev->key.name == KEY_CHAR) {
+    switch (ev->key.ch) {
+    case 'q':
+    case 'Q':
+      return (Cmd_t){CMD_PUSH, quit_screen(g)};
+    case 12: /* Ctrl-L: forces a full repaint, to tell a display bug from a
+              * state bug apart — if this fixes it, the frame was composed
+              * correctly and the diff was at fault. */
+      render_force_repaint();
+      return CMD_STAY;
+    case 's':
+      save_game_now(g);
+      return CMD_STAY;
+    case 'H':
+      /* Shift-H, not h: h is a file name and belongs to the move field. */
+      return (Cmd_t){CMD_PUSH, history_view_screen(g->state)};
+    case '?':
+      return (Cmd_t){CMD_PUSH, help_screen()};
+    case 'x':
+    case 'X':
+      return resign(g);
+    case 'o':
+    case 'O':
+      return offer_draw(g);
+    default:
+      break;
+    }
+  }
+  if (ev->type == EV_KEY && ev->key.name == KEY_F5) {
+    render_force_repaint();
+    return CMD_STAY;
+  }
+
   if (ev->type == EV_MOUSE && (ev->mouse.kind != MOUSE_PRESS || ev->mouse.button != 0)) {
     /* Click-click, not drag-and-drop: only a left press can ever produce a
      * SelectSquare event. Release and motion reports are read by the parser
@@ -778,51 +1105,6 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
   }
   if (ev->type != EV_KEY && ev->type != EV_MOUSE) {
     return CMD_STAY; /* paste and anything else: not a producer of SelectSquare */
-  }
-
-  if (ev->type == EV_KEY && ev->key.name == KEY_CHAR &&
-      (ev->key.ch == 'q' || ev->key.ch == 'Q')) {
-    return quit;
-  }
-  /* Ctrl-L forces a full repaint. It exists so a display that looks wrong can
-   * be told apart from state that is wrong: if this fixes it, the frame was
-   * composed correctly and the diff was at fault. */
-  if (ev->type == EV_KEY &&
-      ((ev->key.name == KEY_CHAR && ev->key.ch == 12) || ev->key.name == KEY_F5)) {
-    render_force_repaint();
-    return CMD_STAY;
-  }
-  /* Shift-F, not f: the files are a-h, so a lowercase f belongs to the move
-   * field. A binding that swallowed it would make the f-file unreachable. */
-  if (ev->type == EV_KEY && ev->key.name == KEY_CHAR && ev->key.ch == 'F') {
-    g->flipped = !g->flipped;
-    return CMD_STAY;
-  }
-  /* Temporary; see the saving and loading section above. */
-  if (ev->type == EV_KEY && ev->key.name == KEY_CHAR &&
-      (ev->key.ch == 's' || ev->key.ch == 'S')) {
-    if (!can_save(g)) {
-      snprintf(g->message, sizeof(g->message),
-               "Nothing to save yet — play a move first.");
-    } else {
-      snprintf(g->message, sizeof(g->message), "%s",
-               save_game(g->state) ? "Game saved." : "Could not save the game.");
-    }
-    return CMD_STAY;
-  }
-  if (ev->type == EV_KEY && ev->key.name == KEY_CHAR &&
-      (ev->key.ch == 'l' || ev->key.ch == 'L')) {
-    if (can_load(g)) {
-      load_into(g);
-    } else {
-      snprintf(g->message, sizeof(g->message),
-               "Loading is offered only before the first move.");
-    }
-    return CMD_STAY;
-  }
-
-  if (g->game_over) {
-    return CMD_STAY;
   }
 
   if (g->awaiting_handoff) {
@@ -852,9 +1134,11 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
     Cmd_t cmd = CMD_STAY;
     if (g->typed_len > 0) {
       submit_typed(g, &cmd);
-    } else {
+    } else if (g->cursor_active) {
       submit_cursor(g, &cmd);
     }
+    /* Enter with nothing typed and no cursor names no square at all — there
+     * is nothing on screen it could be pointing at. */
     return cmd;
   }
   case KEY_ESCAPE:
@@ -868,6 +1152,7 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
     } else if (g->sel_i >= 0) {
       g->sel_i = -1;
       g->sel_j = -1;
+      g->cursor_active = 0;
     }
     break;
   case KEY_CHAR:
@@ -899,6 +1184,7 @@ static void game_on_enter(void *ctx) {
   g->message[0] = '\0';
   g->flipped = (side_to_move(g) == BLACK);
   g->use_color = term_supports_color();
+  highlight_last_move(g);
 }
 
 Screen *game_screen(GameState *state) {
@@ -912,8 +1198,10 @@ Screen *game_screen(GameState *state) {
   g_game.last_from_j = -1;
   g_game.last_to_i = -1;
   g_game.last_to_j = -1;
-  g_game.cursor_row = 6; /* screen-space e2, a reasonable place to start */
-  g_game.cursor_col = 4;
+  /* No cursor until an arrow key asks for one; see move_cursor. */
+  g_game.cursor_row = CURSOR_HOME_ROW;
+  g_game.cursor_col = CURSOR_HOME_COL;
+  g_game.cursor_active = 0;
 
   screen.on_enter = game_on_enter;
   screen.on_exit = NULL;
