@@ -12,5 +12,6 @@ void test_special_moves(void);
 void test_perft(void);
 void test_outcome(void);
 void test_notation(void);
+void test_save(void);
 
 #endif /* TESTS_H */

@@ -80,3 +80,7 @@ Outcome_t outcome(const Position *pos, const uint64_t *hash_history, int hash_hi
 
   return (Outcome_t){.reason = OUTCOME_IN_PROGRESS, .winner = NONE};
 }
+
+int outcome_is_player_chosen(Outcome_reason_t reason) {
+  return reason == OUTCOME_RESIGNATION || reason == OUTCOME_DRAW_AGREEMENT;
+}

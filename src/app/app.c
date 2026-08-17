@@ -13,6 +13,17 @@ static Screen *g_too_small = NULL;
 
 void app_set_too_small_screen(Screen *screen) { g_too_small = screen; }
 
+#define C_HINT 246
+
+void app_draw_bottom_hint(Rect screen, const char *text) {
+  if (screen.h < 1) {
+    return;
+  }
+  draw_fill(rect_sub(screen, 0, screen.h - 1, screen.w, 1), ' ', COLOR_DEFAULT, COLOR_DEFAULT,
+            ATTR_NONE);
+  draw_text(screen, 0, screen.h - 1, text, C_HINT, COLOR_DEFAULT, ATTR_DIM);
+}
+
 /* --- Stack -------------------------------------------------------------- */
 
 static int push(Screen *screen) {

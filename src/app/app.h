@@ -56,6 +56,19 @@ struct Screen {
  * when the space comes back. */
 void app_set_too_small_screen(Screen *screen);
 
+/* The one hint line, on the screen's last row.
+ *
+ * Every screen puts its "how do I drive this" text here and nowhere else, so
+ * there is exactly one place to read it — an overlay does not repeat inside
+ * its own box what the bottom row is already saying. Overlays are drawn after
+ * the screen beneath them (see draw_frame), so an overlay calling this
+ * replaces that screen's hint for as long as it is up: the resignation picker
+ * says "Enter confirm" where the game screen was listing its command keys.
+ *
+ * The row is cleared first, because draw_text only touches the columns it
+ * writes and the line being replaced is usually the longer of the two. */
+void app_draw_bottom_hint(Rect screen, const char *text);
+
 /* Runs until a screen quits or input ends. Returns 0 on a clean exit. */
 int app_run(Screen *initial);
 

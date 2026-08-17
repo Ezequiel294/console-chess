@@ -21,10 +21,9 @@ WARN     := -Wall -Wextra
 # compiled, so the failure names the version problem instead of surfacing
 # as a strange compiler error further down.
 #
-# SAVE_VERSION_FIELD_LEN matches the fixed-size version field in
-# src/app/save.c; a version that would not fit, including its terminating
-# NUL, is a build-time failure rather than a runtime truncation.
-SAVE_VERSION_FIELD_LEN := 16
+# The save format (src/app/save.c) is plain text with no fixed-size version
+# field, so unlike the binary format it replaced, VERSION's length has no
+# effect on it.
 
 ifeq ($(wildcard VERSION),)
 $(error VERSION file not found at the repository root; create one containing a version such as "1.1.0")
@@ -38,11 +37,6 @@ endif
 
 ifeq ($(shell echo '$(VERSION)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$$' && echo ok),)
 $(error VERSION file contains an invalid version string: "$(VERSION)" (expected MAJOR.MINOR.PATCH with an optional pre-release suffix))
-endif
-
-VERSION_LEN := $(shell printf '%s' '$(VERSION)' | wc -c)
-ifeq ($(shell test $(VERSION_LEN) -lt $(SAVE_VERSION_FIELD_LEN) && echo ok),)
-$(error VERSION "$(VERSION)" is too long for the save file's $(SAVE_VERSION_FIELD_LEN)-byte version field)
 endif
 
 # Quoted so it arrives at the compiler as a C string literal.
@@ -72,7 +66,12 @@ all: $(BIN)
 $(BIN): $(OBJ)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BUILDDIR)/%.o: %.c
+# VERSION is a prerequisite because CPPFLAGS bakes its contents into every
+# object. Without it, editing VERSION rebuilds nothing — .d files list only
+# the headers a source read, and VERSION is not one of them — so `make` after
+# a version bump silently relinks a binary still reporting the old version,
+# which is precisely what the release procedure in README.md would then tag.
+$(BUILDDIR)/%.o: %.c VERSION
 	@mkdir -p $(@D)
 	$(CC) $(STD) $(WARN) $(INCLUDE) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
@@ -89,10 +88,11 @@ debug:
 
 # The test suite links the rules-engine layer (src/core) directly against
 # tests/*.c and nothing from src/app or src/ui, since the rules layer performs
-# no I/O and needs no terminal to test.
+# no I/O and needs no terminal to test. src/app/save.c is the one exception:
+# it performs file I/O but no terminal I/O, so it is testable the same way.
 TEST_BIN      := console-chess-test
 TEST_BUILDDIR := build/test
-TEST_SRC      := $(wildcard tests/*.c $(SRCDIR)/core/*.c)
+TEST_SRC      := $(wildcard tests/*.c $(SRCDIR)/core/*.c) $(SRCDIR)/app/save.c
 TEST_OBJ      := $(TEST_SRC:%.c=$(TEST_BUILDDIR)/%.o)
 TEST_DEP      := $(TEST_OBJ:.o=.d)
 
