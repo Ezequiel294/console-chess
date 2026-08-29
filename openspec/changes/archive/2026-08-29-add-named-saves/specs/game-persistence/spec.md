@@ -1,12 +1,4 @@
-# game-persistence Specification
-
-## Purpose
-
-Keeps a game safe across sessions, storing positions and moves in a portable text format that survives a rebuild, a different machine, and inspection by a human.
-
-**Status: revised from "automatic" to "explicit".** The original design saved after every move, silently, and offered to resume on launch. That was scrapped: an automatic background save resumed into a *finished* game (checkmate, a draw) exactly as if it were still in progress, with no result screen — the very outcome-hiding bug the app shell exists to prevent. Saving is now a conscious act (`s`, or the save option in the quit prompt), never automatic, so what gets loaded back is always the in-progress game the player actually asked to keep.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Portable text save format
 

@@ -5,8 +5,8 @@
 #include "types.h"
 
 /* The list of every saved game, for loading one from the main menu — any
- * number of them, each named by the date and time it was saved (see
- * app/save.h).
+ * number of them, each shown by its status, its name, and its move count,
+ * most recently saved first (see app/save.h), and renamable with 'r'.
  *
  * on_loaded is called once a game is chosen and successfully read; it
  * returns the Cmd_t this screen itself returns, so the caller — not this

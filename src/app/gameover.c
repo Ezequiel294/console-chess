@@ -2,6 +2,8 @@
 
 #include "app/game.h"
 #include "app/history_view.h"
+#include "app/prompt.h"
+#include "app/save.h"
 #include "app/settings.h"
 #include "core/history.h"
 #include "core/position.h"
@@ -19,7 +21,7 @@
 #define C_TITLE 250
 #define MARK_CHECK '!'
 
-#define GAMEOVER_ITEM_COUNT 3
+#define GAMEOVER_ITEM_COUNT 4
 
 typedef struct {
   GameState *state;
@@ -28,6 +30,7 @@ typedef struct {
 
   int selected;
   int row_y[GAMEOVER_ITEM_COUNT]; /* where each option was last drawn, for a click */
+  char message[96];               /* what the last save attempt did, if any */
 } GameOver_t;
 
 static GameOver_t g_gameover;
@@ -156,10 +159,55 @@ static void draw_final_board(const Position *pos, Rect r, int flipped, int check
 }
 
 static const char *const MENU_LABELS[GAMEOVER_ITEM_COUNT] = {
+    "Save game",
     "New Game",
     "Review History",
     "Return to Menu",
 };
+
+/* Saving an opening position with no moves played would create a file with
+ * nothing worth loading — the same rule game.c's can_save applies during
+ * play, still true of a game that ended before either side made a move (a
+ * resignation offered on the first turn, for instance). */
+static int can_save_finished(const GameState *s) { return s->p_history_head != NULL; }
+
+static void do_save_finished(GameOver_t *g, const char *name, int name_given) {
+  save_perform(g->state, SAVE_STATUS_FINISHED, name, name_given, g->message, sizeof(g->message));
+}
+
+static int save_name_char_validate(const char *text, char *err, size_t err_len) {
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+  if (trimmed[0] == '\0') {
+    return 1;
+  }
+  return save_name_validate(trimmed, err, err_len);
+}
+
+static Cmd_t on_save_name_submit(void *ctx, const char *text) {
+  GameOver_t *g = (GameOver_t *)ctx;
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+  do_save_finished(g, trimmed, trimmed[0] != '\0');
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+/* Saving is offered here because this is the only screen a finished game is
+ * ever seen from, and leaving it without saving discards the game for good
+ * (see game-persistence's Saving is explicit). The result screen stays up
+ * either way — saving here never leaves it, successful or not. */
+static Cmd_t save_finished_game(GameOver_t *g) {
+  if (!can_save_finished(g->state)) {
+    snprintf(g->message, sizeof(g->message), "Nothing to save — no moves were played.");
+    return CMD_STAY;
+  }
+  if (g->state->save_path[0] != '\0') {
+    do_save_finished(g, NULL, 0);
+    return CMD_STAY;
+  }
+  return (Cmd_t){CMD_PUSH, prompt_screen("Save game as:", "", SAVE_NAME_MAX_CODEPOINTS,
+                                          save_name_char_validate, on_save_name_submit, NULL, g)};
+}
 
 static void gameover_render(void *ctx, Rect r) {
   GameOver_t *g = (GameOver_t *)ctx;
@@ -173,6 +221,9 @@ static void gameover_render(void *ctx, Rect r) {
   if (outcome_is_player_chosen(g->outcome.reason)) {
     draw_text(r, 1, 3, "(the players' choice, not forced by the rules)", C_LABEL, COLOR_DEFAULT,
               ATTR_DIM);
+  }
+  if (g->message[0] != '\0') {
+    draw_text(r, 1, 4, g->message, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
   }
 
   /* Checkmate always leaves the losing side's king in check; every other
@@ -209,11 +260,13 @@ static void reset_for_new_game(GameState *s) {
 static Cmd_t activate(GameOver_t *g, int k) {
   switch (k) {
   case 0:
+    return save_finished_game(g);
+  case 1:
     reset_for_new_game(g->state);
     return (Cmd_t){CMD_REPLACE, game_screen(g->state)};
-  case 1:
-    return (Cmd_t){CMD_PUSH, history_view_screen(g->state)};
   case 2:
+    return (Cmd_t){CMD_PUSH, history_view_screen(g->state)};
+  case 3:
     return (Cmd_t){CMD_POP, NULL};
   default:
     return CMD_STAY;
@@ -252,7 +305,7 @@ static Cmd_t gameover_handle(void *ctx, const Event_t *ev) {
     return activate(g, g->selected);
   }
   if (ev->key.name == KEY_ESCAPE) {
-    return activate(g, 2);
+    return activate(g, 3);
   }
   return CMD_STAY;
 }
@@ -260,10 +313,16 @@ static Cmd_t gameover_handle(void *ctx, const Event_t *ev) {
 Screen *gameover_screen(GameState *state, Outcome_t outcome, int flipped) {
   static Screen screen;
 
+  /* Set before anything on this screen can read it, so a save performed from
+   * here records how the game ended. */
+  state->result_reason = outcome.reason;
+  state->result_winner = outcome.winner;
+
   g_gameover.state = state;
   g_gameover.outcome = outcome;
   g_gameover.flipped = flipped;
   g_gameover.selected = 0;
+  g_gameover.message[0] = '\0';
 
   screen.on_enter = gameover_on_enter;
   screen.on_exit = NULL;

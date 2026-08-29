@@ -1,9 +1,12 @@
 #include "app/savedgames.h"
 
+#include "app/prompt.h"
 #include "app/save.h"
+#include "core/history.h"
 #include "ui/render.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define C_BOX_BG 236
 #define C_BOX_FG 250
@@ -29,6 +32,17 @@ typedef struct {
 
 static SavedGames_t g_savedgames;
 
+/* What the rename prompt needs once the player answers — captured at the
+ * moment 'r' is pressed rather than re-read from g_savedgames.selected later,
+ * since the list itself is what gets rebuilt once the rename completes. */
+typedef struct {
+  SavedGames_t *list;
+  char path[300];
+  Save_status_t status;
+} Rename_ctx_t;
+
+static Rename_ctx_t g_rename_ctx;
+
 static void clamp_selected(SavedGames_t *s) {
   if (s->selected < 0) {
     s->selected = 0;
@@ -42,18 +56,73 @@ static Cmd_t load_selected(SavedGames_t *s) {
   if (s->count == 0 || s->selected < 0 || s->selected >= s->count) {
     return CMD_STAY;
   }
-  const char *path = s->entries[s->selected].path;
+  Saved_game_entry_t *e = &s->entries[s->selected];
   GameState loaded = {0};
-  Save_read_result_t r = save_read(path, &loaded);
+  Save_read_result_t r = save_read(e->path, &loaded);
   if (r.status != SAVE_READ_OK) {
     save_read_message(r, s->message, sizeof(s->message));
     return CMD_STAY;
   }
-  /* Carries the path forward so continuing this game and saving it again
-   * updates this same file instead of starting a new one (see
-   * GameState.save_path and game.c's save_game_now). */
-  snprintf(loaded.save_path, sizeof(loaded.save_path), "%s", path);
+  /* Carries the path and name forward so continuing this game and saving it
+   * again updates this same file instead of starting a new one (see
+   * GameState.save_path and game.c's save_game_now). The name comes from the
+   * filename (e->name), not the file's contents — save_read never sets it. */
+  snprintf(loaded.save_path, sizeof(loaded.save_path), "%s", e->path);
+  snprintf(loaded.name, sizeof(loaded.name), "%s", e->name);
   return s->on_loaded(s->ctx, loaded);
+}
+
+static int rename_name_char_validate(const char *text, char *err, size_t err_len) {
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+  if (trimmed[0] == '\0') {
+    return 1; /* empty means today's date, always valid */
+  }
+  return save_name_validate(trimmed, err, err_len);
+}
+
+static Cmd_t on_rename_submit(void *ctx, const char *text) {
+  Rename_ctx_t *rc = (Rename_ctx_t *)ctx;
+  SavedGames_t *s = rc->list;
+
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+
+  GameState loaded = {0};
+  Save_read_result_t r = save_read(rc->path, &loaded);
+  if (r.status != SAVE_READ_OK) {
+    save_read_message(r, s->message, sizeof(s->message));
+    return (Cmd_t){CMD_POP, NULL};
+  }
+  snprintf(loaded.save_path, sizeof(loaded.save_path), "%s", rc->path);
+
+  int ok = save_perform(&loaded, rc->status, trimmed, trimmed[0] != '\0', s->message,
+                         sizeof(s->message));
+  free_captures(loaded.p_captures_white_head);
+  free_captures(loaded.p_captures_black_head);
+  free_history(loaded.p_history_head);
+  free_hash_history(loaded.p_hash_history_head);
+  free_history(loaded.p_redo_head);
+
+  if (ok) {
+    snprintf(s->message, sizeof(s->message), "Renamed.");
+  }
+  s->count = save_list_games(s->entries, MAX_ENTRIES);
+  clamp_selected(s);
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+static Cmd_t rename_selected(SavedGames_t *s) {
+  if (s->count == 0 || s->selected < 0 || s->selected >= s->count) {
+    return CMD_STAY;
+  }
+  Saved_game_entry_t *e = &s->entries[s->selected];
+  g_rename_ctx.list = s;
+  snprintf(g_rename_ctx.path, sizeof(g_rename_ctx.path), "%s", e->path);
+  g_rename_ctx.status = e->status;
+  return (Cmd_t){CMD_PUSH,
+                 prompt_screen("Rename to:", e->name, SAVE_NAME_MAX_CODEPOINTS,
+                               rename_name_char_validate, on_rename_submit, NULL, &g_rename_ctx)};
 }
 
 static void savedgames_on_enter(void *ctx) {
@@ -71,8 +140,8 @@ static void savedgames_render(void *ctx, Rect r) {
   /* PgUp/PgDn/Home/End still work (see savedgames_handle); they are simply
    * not advertised — a hint line naming every key that does something is one
    * nobody reads. */
-  draw_text(r, 1, r.h - 1, "↑/↓ + Enter, or click to select  ·  Esc menu", C_LABEL, C_BOX_BG,
-            ATTR_DIM);
+  draw_text(r, 1, r.h - 1, "↑/↓ + Enter, or click to select  ·  r rename  ·  Esc menu", C_LABEL,
+            C_BOX_BG, ATTR_DIM);
 
   Rect list = rect_sub(r, 1, 2, r.w - 2, r.h - 3);
   s->list_y = list.y;
@@ -99,13 +168,12 @@ static void savedgames_render(void *ctx, Rect r) {
   for (int row = 0; row < list.h && scroll_row + row < s->count; row++) {
     int k = scroll_row + row;
     Saved_game_entry_t *e = &s->entries[k];
-    char line[80];
+    const char *status_str = (e->status == SAVE_STATUS_FINISHED) ? "finished" : "ongoing";
+    char line[80 + SAVE_NAME_BUF_LEN];
     if (e->readable) {
-      const char *mover = (e->side_to_move == WHITE) ? "White" : "Black";
-      snprintf(line, sizeof(line), "%-19s  %3d moves, %s to move", e->label, e->move_count,
-                mover);
+      snprintf(line, sizeof(line), "%-8s  %-24s  %3d moves", status_str, e->name, e->move_count);
     } else {
-      snprintf(line, sizeof(line), "%-19s  (could not be read)", e->label);
+      snprintf(line, sizeof(line), "%-8s  %-24s  (could not be read)", status_str, e->name);
     }
     uint8_t attr = (k == s->selected) ? ATTR_REVERSE : ATTR_NONE;
     draw_text(list, 0, row, line, COLOR_DEFAULT, C_BOX_BG, attr);
@@ -145,6 +213,9 @@ static Cmd_t savedgames_handle(void *ctx, const Event_t *ev) {
   }
   if (ev->key.name == KEY_ESCAPE) {
     return (Cmd_t){CMD_POP, NULL};
+  }
+  if (ev->key.name == KEY_CHAR && (ev->key.ch == 'r' || ev->key.ch == 'R')) {
+    return rename_selected(s);
   }
   switch (ev->key.name) {
   case KEY_UP:

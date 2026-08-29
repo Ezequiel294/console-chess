@@ -1,10 +1,6 @@
 
-/*
-Ezequiel Buck
-Programming Principles
-Final Project
-Console Chess Game
-*/
+// Ezequiel Buck
+// Console Chess Game
 
 
 #include "app/app.h"

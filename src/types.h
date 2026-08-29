@@ -129,6 +129,25 @@ typedef struct {
    * first save. Saving again reuses this path, so repeated saves of the same
    * game update one file instead of piling up a new one each time. */
   char save_path[300];
+
+  /* The game's identity, independent of its file's name — empty until the
+   * first save, assigned then and kept for the game's whole life. Six hex
+   * digits plus a NUL; see app/save.h. */
+  char id[7];
+  /* What the game is called, and whether the player typed that name or it
+   * stands in for a date the game is willing to move forward on its own.
+   * Up to 32 codepoints of UTF-8; see app/save.h's SAVE_NAME_MAX_CODEPOINTS.
+   * Populated from the filename on load, from the prompt on a first save or
+   * rename. */
+  char name[129];
+  int name_given;
+  /* How the game ended, or OUTCOME_IN_PROGRESS while it is still being
+   * played — kept as raw fields rather than an Outcome_t, since types.h
+   * cannot include core/outcome.h without a cycle (outcome.h includes
+   * types.h for Color and Position). See core/outcome.h for what
+   * result_reason's values mean. */
+  int result_reason;
+  Color result_winner;
 } GameState;
 
 #endif /* TYPES_H */
