@@ -21,6 +21,9 @@ static const char *LINES[] = {
     "Mouse",
     " Click selects a piece or names its destination. The wheel",
     " scrolls the history screen and does nothing on the board.",
+    "",
+    "Load Game screen",
+    " r  rename the selected save",
 };
 #define LINE_COUNT (int)(sizeof(LINES) / sizeof(LINES[0]))
 

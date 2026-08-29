@@ -4,6 +4,7 @@
 #include "core/board.h"
 #include "core/history.h"
 #include "core/notation.h"
+#include "core/outcome.h"
 #include "core/position.h"
 
 #include <stdio.h>
@@ -170,6 +171,215 @@ static void test_rejections(void) {
   check_rejected("CCHS\x04\x00\x00\x00garbage", SAVE_READ_OLD_VERSION, -1);
 }
 
+static void test_trailer(void) {
+  /* A finished game's result and reason round-trip, including resignation,
+   * which (like an agreed draw) leaves no trace in the moves themselves. */
+  write_raw(TMP_A, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "e2e4 e7e5\n"
+                    "result 1-0 resignation\n"
+                    "id 5d54b0\n"
+                    "name given\n");
+  GameState state = {0};
+  Save_read_result_t r = save_read(TMP_A, &state);
+  TEST_CHECK(r.status == SAVE_READ_OK);
+  TEST_CHECK(state.result_reason == OUTCOME_RESIGNATION);
+  TEST_CHECK(state.result_winner == WHITE);
+  TEST_CHECK_MSG(strcmp(state.id, "5d54b0") == 0, "id mismatch: %s", state.id);
+  TEST_CHECK(state.name_given == 1);
+  free_state(&state);
+  remove(TMP_A);
+
+  /* An agreed draw, with no id and no name line (both absent, so auto). */
+  write_raw(TMP_A, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "\n"
+                    "result 1/2-1/2 agreement\n");
+  GameState state2 = {0};
+  Save_read_result_t r2 = save_read(TMP_A, &state2);
+  TEST_CHECK(r2.status == SAVE_READ_OK);
+  TEST_CHECK(state2.result_reason == OUTCOME_DRAW_AGREEMENT);
+  TEST_CHECK(state2.result_winner == NONE);
+  TEST_CHECK(state2.id[0] == '\0');
+  TEST_CHECK(state2.name_given == 0);
+  free_state(&state2);
+  remove(TMP_A);
+
+  /* A two-line file — no trailer at all — still loads, as in progress. */
+  write_raw(TMP_A, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "e2e4 e7e5\n");
+  GameState state3 = {0};
+  Save_read_result_t r3 = save_read(TMP_A, &state3);
+  TEST_CHECK(r3.status == SAVE_READ_OK);
+  TEST_CHECK(state3.result_reason == OUTCOME_IN_PROGRESS);
+  TEST_CHECK(state3.id[0] == '\0');
+  TEST_CHECK(state3.name_given == 0);
+  free_state(&state3);
+  remove(TMP_A);
+
+  /* Round trip through save_write and back: a finished game's id, whether
+   * its name was given, and its recorded result all survive. */
+  write_raw(TMP_A, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "f2f3 e7e5 g2g4 d8h4\n"
+                    "result 0-1 checkmate\n"
+                    "id abcdef\n"
+                    "name given\n");
+  GameState rt = {0};
+  TEST_CHECK(save_read(TMP_A, &rt).status == SAVE_READ_OK);
+  TEST_CHECK(save_write(TMP_B, &rt));
+  GameState rt2 = {0};
+  Save_read_result_t rtr = save_read(TMP_B, &rt2);
+  TEST_CHECK(rtr.status == SAVE_READ_OK);
+  TEST_CHECK(rt2.result_reason == OUTCOME_CHECKMATE);
+  TEST_CHECK(rt2.result_winner == BLACK);
+  TEST_CHECK(strcmp(rt2.id, "abcdef") == 0);
+  TEST_CHECK(rt2.name_given == 1);
+  free_state(&rt);
+  free_state(&rt2);
+  remove(TMP_A);
+  remove(TMP_B);
+}
+
+static void test_trailer_rejections(void) {
+  /* An unknown trailer key: a half-understood file is worse than a refused
+   * one. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "bogus value\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* A result whose score is none of the three the format defines. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "result 2-0 checkmate\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* A result whose reason is none of the seven the format defines. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "result 1-0 bogus\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* An id that is not six hex digits. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "id nothex\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* A name value that is neither given nor auto. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "name sometimes\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* A duplicate key. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "id abcdef\n"
+                  "id 123456\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+}
+
+static void test_save_naming(void) {
+  /* Names with underscores, spaces, parentheses, and non-ASCII round-trip
+   * through build-then-parse: everything after the first underscore is the
+   * name, whatever it contains. */
+  const char *names[] = {
+      "Sicilian_Defense",
+      "My Great Game",
+      "Rematch(2)",
+      "Caf\xc3\xa9 du Roi",
+  };
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+    char path[300];
+    TEST_CHECK(save_build_path(path, sizeof(path), SAVE_STATUS_ONGOING, names[i]));
+
+    const char *base = strrchr(path, '/');
+    TEST_CHECK(base != NULL);
+    if (base == NULL) {
+      continue;
+    }
+    base++;
+    size_t len = strlen(base);
+    TEST_CHECK(len > 6 && strcmp(base + len - 6, ".chess") == 0);
+    char stem[256];
+    memcpy(stem, base, len - 6);
+    stem[len - 6] = '\0';
+
+    Save_status_t status;
+    char name[SAVE_NAME_BUF_LEN];
+    save_parse_stem(stem, &status, name, sizeof(name));
+    TEST_CHECK(status == SAVE_STATUS_ONGOING);
+    TEST_CHECK_MSG(strcmp(name, names[i]) == 0, "expected %s, got %s", names[i], name);
+  }
+
+  /* An old-shape stem — no ongoing_/finished_ prefix — parses as ongoing,
+   * name the whole stem: what keeps files from before this change listed. */
+  {
+    Save_status_t status;
+    char name[SAVE_NAME_BUF_LEN];
+    save_parse_stem("2026-08-16_140503-a3f9c1", &status, name, sizeof(name));
+    TEST_CHECK(status == SAVE_STATUS_ONGOING);
+    TEST_CHECK(strcmp(name, "2026-08-16_140503-a3f9c1") == 0);
+  }
+
+  /* Only the first underscore splits status from name, so a name that itself
+   * looks like a status word is untouched. */
+  {
+    Save_status_t status;
+    char name[SAVE_NAME_BUF_LEN];
+    save_parse_stem("finished_ongoing_game", &status, name, sizeof(name));
+    TEST_CHECK(status == SAVE_STATUS_FINISHED);
+    TEST_CHECK(strcmp(name, "ongoing_game") == 0);
+  }
+}
+
+static void test_numbering(void) {
+  save_games_dir_ensure();
+
+  const char *name = "test_numbering_game";
+  char base_path[300], numbered1[300], numbered2[300];
+  TEST_CHECK(save_build_path(base_path, sizeof(base_path), SAVE_STATUS_ONGOING, name));
+  snprintf(numbered1, sizeof(numbered1), "games/ongoing_%s(1).chess", name);
+  snprintf(numbered2, sizeof(numbered2), "games/ongoing_%s(2).chess", name);
+  remove(base_path);
+  remove(numbered1);
+  remove(numbered2);
+
+  char target[300];
+
+  /* Nothing there yet: the plain name is free. */
+  TEST_CHECK(save_target_path(target, sizeof(target), SAVE_STATUS_ONGOING, name, "aaaaaa"));
+  TEST_CHECK(strcmp(target, base_path) == 0);
+
+  GameState other = {0};
+  position_init(&other.position);
+  other.start_position = other.position;
+  snprintf(other.id, sizeof(other.id), "bbbbbb");
+  TEST_CHECK(save_write(base_path, &other));
+
+  /* Taken by a different id: (1) is offered. */
+  TEST_CHECK(save_target_path(target, sizeof(target), SAVE_STATUS_ONGOING, name, "aaaaaa"));
+  TEST_CHECK_MSG(strcmp(target, numbered1) == 0, "expected %s, got %s", numbered1, target);
+
+  /* But the id that already owns the plain name is recognised as its own, not
+   * a collision to number past. */
+  TEST_CHECK(save_target_path(target, sizeof(target), SAVE_STATUS_ONGOING, name, "bbbbbb"));
+  TEST_CHECK(strcmp(target, base_path) == 0);
+
+  GameState other2 = {0};
+  position_init(&other2.position);
+  other2.start_position = other2.position;
+  snprintf(other2.id, sizeof(other2.id), "cccccc");
+  TEST_CHECK(save_write(numbered1, &other2));
+
+  /* (1) is now taken too: (2) is the next free number. */
+  TEST_CHECK(save_target_path(target, sizeof(target), SAVE_STATUS_ONGOING, name, "aaaaaa"));
+  TEST_CHECK_MSG(strcmp(target, numbered2) == 0, "expected %s, got %s", numbered2, target);
+
+  remove(base_path);
+  remove(numbered1);
+  remove(numbered2);
+}
+
 static void test_no_file(void) {
   remove("test_save_does_not_exist.chess");
   GameState state = {0};
@@ -194,6 +404,10 @@ static void test_write_then_read_matches_captures(void) {
 void test_save(void) {
   test_round_trips();
   test_rejections();
+  test_trailer();
+  test_trailer_rejections();
+  test_save_naming();
+  test_numbering();
   test_no_file();
   test_write_then_read_matches_captures();
 }

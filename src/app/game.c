@@ -5,6 +5,7 @@
 #include "app/help.h"
 #include "app/history_view.h"
 #include "app/promotion.h"
+#include "app/prompt.h"
 #include "app/save.h"
 #include "app/settings.h"
 #include "core/board.h"
@@ -827,19 +828,61 @@ static void move_cursor(Game_t *g, int drow, int dcol) {
  * updates one file instead of collecting a new one each time; loading a game
  * carries its path over the same way (see savedgames.c), so continuing a
  * loaded game and saving it again still updates that same file. */
-static void save_game_now(Game_t *g) {
+static void do_save(Game_t *g, const char *name, int name_given) {
+  save_perform(g->state, SAVE_STATUS_ONGOING, name, name_given, g->message, sizeof(g->message));
+}
+
+/* Shared by the name prompt this screen pushes and the one the quit picker
+ * pushes: an empty (or all-space) submission always validates, since it just
+ * means today's date. */
+static int save_name_char_validate(const char *text, char *err, size_t err_len) {
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+  if (trimmed[0] == '\0') {
+    return 1;
+  }
+  return save_name_validate(trimmed, err, err_len);
+}
+
+static Cmd_t on_save_name_submit(void *ctx, const char *text) {
+  Game_t *g = (Game_t *)ctx;
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+  do_save(g, trimmed, trimmed[0] != '\0');
+  return (Cmd_t){CMD_POP, NULL};
+}
+
+static Cmd_t on_save_and_quit_name_submit(void *ctx, const char *text) {
+  Game_t *g = (Game_t *)ctx;
+  char trimmed[SAVE_NAME_BUF_LEN];
+  save_name_trim(text, trimmed, sizeof(trimmed));
+  do_save(g, trimmed, trimmed[0] != '\0');
+  return (Cmd_t){CMD_QUIT, NULL};
+}
+
+/* Saving a game with no file yet opens the name prompt and saves from its
+ * callback; a game that already has one is saved straight to it, exactly as
+ * before. after_direct is what to return once a plain (no-prompt) save is
+ * done — CMD_STAY for the save command during play, CMD_QUIT for "Save and
+ * quit", which is why this is shared rather than duplicated between them. */
+static Cmd_t save_flow(Game_t *g, Cmd_t (*on_submit)(void *ctx, const char *text),
+                        Cmd_t after_direct) {
   if (!can_save(g)) {
     snprintf(g->message, sizeof(g->message), "Nothing to save yet — play a move first.");
-    return;
+    return CMD_STAY;
   }
-  if (g->state->save_path[0] == '\0') {
-    if (!save_new_game_path(g->state->save_path, sizeof(g->state->save_path))) {
-      snprintf(g->message, sizeof(g->message), "Could not save.");
-      return;
-    }
+  if (g->state->save_path[0] != '\0') {
+    do_save(g, NULL, 0);
+    return after_direct;
   }
-  int ok = save_write(g->state->save_path, g->state);
-  snprintf(g->message, sizeof(g->message), "%s", ok ? "Saved." : "Could not save.");
+  return (Cmd_t){CMD_PUSH, prompt_screen("Save game as:", "", SAVE_NAME_MAX_CODEPOINTS,
+                                          save_name_char_validate, on_submit, NULL, g)};
+}
+
+static Cmd_t save_game_now(Game_t *g) { return save_flow(g, on_save_name_submit, CMD_STAY); }
+
+static Cmd_t save_and_quit(Game_t *g) {
+  return save_flow(g, on_save_and_quit_name_submit, (Cmd_t){CMD_QUIT, NULL});
 }
 
 /* The quit picker: replaces a plain yes/no confirmation now that there is no
@@ -908,8 +951,7 @@ static Cmd_t quit_activate(Quit_ctx_t *qc, int k) {
   if (qc->option_count == 3) {
     switch (k) {
     case 0:
-      save_game_now(g);
-      return (Cmd_t){CMD_QUIT, NULL};
+      return save_and_quit(g);
     case 1:
       return (Cmd_t){CMD_QUIT, NULL};
     default:
@@ -1075,8 +1117,7 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
       render_force_repaint();
       return CMD_STAY;
     case 's':
-      save_game_now(g);
-      return CMD_STAY;
+      return save_game_now(g);
     case 'H':
       /* Shift-H, not h: h is a file name and belongs to the move field. */
       return (Cmd_t){CMD_PUSH, history_view_screen(g->state)};
