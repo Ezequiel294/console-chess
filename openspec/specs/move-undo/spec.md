@@ -77,10 +77,6 @@ An undo SHALL update every view of the game consistently: the board, the capture
 - **WHEN** a move that answered a check is undone
 - **THEN** the check indicator is shown again
 
-#### Scenario: Undoing into a finished game
-- **WHEN** a game has ended and the final move is undone
-- **THEN** the game is in progress again and moves are accepted
-
 ### Requirement: Undo interacts correctly with saving
 
 Undo is reachable only while reviewing a finished game, which is read from its file and never written back. A replay SHALL NOT modify the saved game it was opened from, no matter how far back it is stepped: the file records the game that was played, not the position a reviewer happened to stop at.
