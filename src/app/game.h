@@ -18,4 +18,10 @@
 /* The screen borrows state; it does not own it and does not free it. */
 Screen *game_screen(GameState *state);
 
+/* The same screen, driven by stepping instead of play: no move can be made,
+ * the arrows and u/r step through the game's own moves, f flips the board,
+ * and q leaves directly with no save prompt. state's result is read as-is —
+ * the caller is responsible for only opening a replay on a finished game. */
+Screen *replay_screen(GameState *state);
+
 #endif /* GAME_H */

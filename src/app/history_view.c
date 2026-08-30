@@ -14,17 +14,31 @@
 
 typedef struct {
   const GameState *state;
+  int mark_current; /* whether to mark and scroll to the current move at all */
   char san[MAX_PLIES][SAN_MAX_LEN];
   int ply_count;
+  /* Index into san of the move the board is currently showing (the last node
+   * of p_history_head), or -1 to mark nothing — the starting position, or
+   * live play, where mark_current is always false. */
+  int current_ply;
   int scroll_row; /* topmost visible numbered-pair row */
 } History_view_t;
 
 static History_view_t g_history_view;
 
-static void compute_san(History_view_t *h) {
+/* SAN over the whole game — history ++ redo — so a replay lists every move
+ * regardless of how far it has stepped back; in live play p_redo_head is
+ * always empty, so this is exactly the moves played so far. */
+static void compute_san(History_view_t *h, int mark_current) {
   Position pos = h->state->start_position;
   int n = 0;
   for (const History_node_t *p = h->state->p_history_head; p != NULL && n < MAX_PLIES;
+       p = p->p_next, n++) {
+    move_to_san(&pos, p->move, h->san[n]);
+    make(&pos, p->move);
+  }
+  h->current_ply = (mark_current && n > 0) ? n - 1 : -1;
+  for (const History_node_t *p = h->state->p_redo_head; p != NULL && n < MAX_PLIES;
        p = p->p_next, n++) {
     move_to_san(&pos, p->move, h->san[n]);
     make(&pos, p->move);
@@ -47,8 +61,10 @@ static void clamp_scroll(History_view_t *h, int visible_rows) {
 
 static void history_view_on_enter(void *ctx) {
   History_view_t *h = (History_view_t *)ctx;
-  compute_san(h);
-  h->scroll_row = pair_count(h); /* clamped to the bottom on first render */
+  compute_san(h, h->mark_current);
+  /* Scrolled to the bottom in live play, or to the marked move in a replay —
+   * clamped once the visible row count is known, at first render. */
+  h->scroll_row = (h->current_ply >= 0) ? h->current_ply / 2 : pair_count(h);
 }
 
 static void history_view_render(void *ctx, Rect r) {
@@ -76,12 +92,21 @@ static void history_view_render(void *ctx, Rect r) {
 
   for (int row = 0; row < list.h && h->scroll_row + row < total; row++) {
     int k = h->scroll_row + row;
+    int white_ply = 2 * k;
+    int black_ply = 2 * k + 1;
+    /* A marked ply is bracketed rather than distinguished by colour alone, so
+     * it still reads in monochrome mode. */
+    char white_field[SAN_MAX_LEN + 2];
+    snprintf(white_field, sizeof(white_field), (white_ply == h->current_ply) ? "[%s]" : "%s",
+             h->san[white_ply]);
     char line[64];
-    const char *white = h->san[2 * k];
-    if (2 * k + 1 < h->ply_count) {
-      snprintf(line, sizeof(line), "%3d. %-8s %-8s", k + 1, white, h->san[2 * k + 1]);
+    if (black_ply < h->ply_count) {
+      char black_field[SAN_MAX_LEN + 2];
+      snprintf(black_field, sizeof(black_field), (black_ply == h->current_ply) ? "[%s]" : "%s",
+               h->san[black_ply]);
+      snprintf(line, sizeof(line), "%3d. %-9s %-9s", k + 1, white_field, black_field);
     } else {
-      snprintf(line, sizeof(line), "%3d. %-8s", k + 1, white);
+      snprintf(line, sizeof(line), "%3d. %-9s", k + 1, white_field);
     }
     draw_text(list, 0, row, line, COLOR_DEFAULT, C_BOX_BG, ATTR_NONE);
   }
@@ -136,11 +161,13 @@ static Cmd_t history_view_handle(void *ctx, const Event_t *ev) {
   return CMD_STAY;
 }
 
-Screen *history_view_screen(const GameState *state) {
+Screen *history_view_screen(const GameState *state, int mark_current) {
   static Screen screen;
 
   g_history_view.state = state;
+  g_history_view.mark_current = mark_current;
   g_history_view.ply_count = 0;
+  g_history_view.current_ply = -1;
   g_history_view.scroll_row = 0;
 
   screen.on_enter = history_view_on_enter;

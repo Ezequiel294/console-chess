@@ -8,10 +8,15 @@
  *
  * state is borrowed and must not change while this screen is on top of the
  * stack — true by construction, since nothing else runs while it has input
- * focus. Undone moves are simply absent from p_history_head (see move-undo),
- * so this screen needs no special case for them: it shows exactly the list it
- * is given.
+ * focus.
+ *
+ * The list shown is always state->p_history_head ++ state->p_redo_head, the
+ * whole game in played order; in live play p_redo_head is always empty, so
+ * this is exactly the moves played so far. mark_current, when true, marks the
+ * last move of p_history_head — the move the board is currently showing — and
+ * opens the view scrolled to it; pass 0 for live play, where nothing should
+ * be marked.
  */
-Screen *history_view_screen(const GameState *state);
+Screen *history_view_screen(const GameState *state, int mark_current);
 
 #endif /* HISTORY_VIEW_H */
