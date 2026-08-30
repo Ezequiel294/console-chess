@@ -10,4 +10,9 @@
  * was beneath unchanged. */
 Screen *help_screen(void);
 
+/* The same overlay, describing a replay's own keys instead — stepping and
+ * flipping, not moving a piece, so the two must never share one set of
+ * lines. Pushed from a replay's own '?' key. */
+Screen *replay_help_screen(void);
+
 #endif /* HELP_H */

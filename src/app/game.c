@@ -14,6 +14,7 @@
 #include "core/notation.h"
 #include "core/outcome.h"
 #include "core/position.h"
+#include "core/replay.h"
 #include "ui/glyphs.h"
 #include "ui/interaction.h"
 #include "ui/layout.h"
@@ -54,8 +55,14 @@
  * showing. */
 #define MARK_CHECK '!'
 
+/* GAME_MODE_LIVE plays; GAME_MODE_REPLAY steps. game_handle branches on this
+ * before any live-play handling, so a replay never reaches the code that
+ * could originate a move. */
+typedef enum { GAME_MODE_LIVE, GAME_MODE_REPLAY } Game_mode_t;
+
 typedef struct {
   GameState *state;
+  Game_mode_t mode;
 
   int flipped; /* the board is drawn from black's side */
 
@@ -489,7 +496,54 @@ static void draw_hints(Rect r, int y, const Hint_t *hints, int n) {
   }
 }
 
+/* Defined below, in Turn flow — forward-declared here since the replay status
+ * line states the same result text a live game's ending does. */
+static const char *outcome_message(Outcome_t oc);
+
+/* The result on the state, read the same way regardless of whether it came
+ * off a save file or a game that just ended — a replay's state always
+ * carries one, since only a finished game is ever opened as a replay. */
+static Outcome_t state_result(const GameState *state) {
+  return (Outcome_t){.reason = (Outcome_reason_t)state->result_reason,
+                      .winner = state->result_winner};
+}
+
+static void draw_status_replay(const Game_t *g, Rect r) {
+  char line[160];
+  char mover_label[24];
+  const char *mover = (side_to_move(g) == WHITE) ? "White" : "Black";
+  int checked = in_check(&g->state->position, side_to_move(g));
+  snprintf(mover_label, sizeof(mover_label), "%s%s", mover, checked ? " (check)" : "");
+
+  draw_hline(r, 0, 0, r.w, 0x2500u, C_RULE, COLOR_DEFAULT, ATTR_NONE);
+
+  /* The final position is the one with nothing left to step forward to, and
+   * the only place the result is stated — in place of the side to move,
+   * since the game is over and there is no turn left to name. */
+  if (g->state->p_redo_head == NULL) {
+    snprintf(line, sizeof(line), "%s", outcome_message(state_result(g->state)));
+  } else {
+    snprintf(line, sizeof(line), "%s to move", mover_label);
+  }
+  draw_text(r, 0, 1, line, COLOR_DEFAULT, COLOR_DEFAULT, ATTR_NONE);
+
+  Hint_t hints[] = {
+      {"f", "flip", 1},
+      {"u/←", "back", g->state->p_history_head != NULL},
+      {"r/→", "forward", g->state->p_redo_head != NULL},
+      {"h", "history", 1},
+      {"?", "help", 1},
+      {"q", "quit", 1},
+  };
+  draw_hints(r, 2, hints, (int)(sizeof(hints) / sizeof(hints[0])));
+}
+
 static void draw_status(const Game_t *g, Rect r) {
+  if (g->mode == GAME_MODE_REPLAY) {
+    draw_status_replay(g, r);
+    return;
+  }
+
   char line[160];
   char mover_label[24];
   const char *mover = (side_to_move(g) == WHITE) ? "White" : "Black";
@@ -1025,12 +1079,16 @@ static Screen *quit_screen(Game_t *g) {
  * before either player touches a key, and making everyone answer "who" every
  * time to preserve a case that essentially never comes up was the worse
  * trade. */
+/* Goes straight to the result screen — CMD_POP_REPLACE pops this confirm
+ * overlay and replaces the game screen beneath it in one step, rather than
+ * setting game_over and waiting for this screen's next event to notice (the
+ * "press any key to continue" pause that path needs, and which resigning has
+ * no reason to add: the player just confirmed exactly this). */
 static Cmd_t on_resign_confirm(void *ctx) {
   Game_t *g = (Game_t *)ctx;
   Outcome_t oc = {.reason = OUTCOME_RESIGNATION,
                   .winner = (side_to_move(g) == WHITE) ? BLACK : WHITE};
-  apply_outcome(g, oc);
-  return (Cmd_t){CMD_POP, NULL};
+  return (Cmd_t){CMD_POP_REPLACE, gameover_screen(g->state, oc, g->flipped)};
 }
 
 static Cmd_t on_resign_cancel(void *ctx) {
@@ -1054,11 +1112,12 @@ static Cmd_t resign(Game_t *g) {
  * The two players are in the same room: the offer and the answer are one
  * exchange, and the prompt names both sides explicitly so whoever is holding
  * the keyboard knows which of them it is addressed to. */
+/* Same reasoning as on_resign_confirm: straight to the result screen, no
+ * extra keypress to acknowledge an outcome the player just agreed to. */
 static Cmd_t on_draw_accept(void *ctx) {
   Game_t *g = (Game_t *)ctx;
   Outcome_t oc = {.reason = OUTCOME_DRAW_AGREEMENT, .winner = NONE};
-  apply_outcome(g, oc);
-  return (Cmd_t){CMD_POP, NULL};
+  return (Cmd_t){CMD_POP_REPLACE, gameover_screen(g->state, oc, g->flipped)};
 }
 
 static Cmd_t on_draw_decline(void *ctx) {
@@ -1082,8 +1141,73 @@ static Cmd_t offer_draw(Game_t *g) {
 
 /* --- Input ---------------------------------------------------------------- */
 
+/* Only f, u, r, the arrows, h, ?, q, Ctrl-L and F5 do anything here — every
+ * other key, every click, and the wheel are dropped before any square could
+ * be named, so no code path that could originate a move is reachable from a
+ * replay. */
+static Cmd_t replay_handle(Game_t *g, const Event_t *ev) {
+  if (ev->type == EV_MOUSE) {
+    return CMD_STAY;
+  }
+  if (ev->type != EV_KEY) {
+    return CMD_STAY;
+  }
+
+  if (ev->key.name == KEY_LEFT) {
+    if (replay_step_back(g->state)) {
+      highlight_last_move(g);
+    }
+    return CMD_STAY;
+  }
+  if (ev->key.name == KEY_RIGHT) {
+    if (replay_step_forward(g->state)) {
+      highlight_last_move(g);
+    }
+    return CMD_STAY;
+  }
+  if (ev->key.name == KEY_F5) {
+    render_force_repaint();
+    return CMD_STAY;
+  }
+  if (ev->key.name != KEY_CHAR) {
+    return CMD_STAY;
+  }
+
+  switch (ev->key.ch) {
+  case 'f':
+    g->flipped = !g->flipped;
+    break;
+  case 'u':
+    if (replay_step_back(g->state)) {
+      highlight_last_move(g);
+    }
+    break;
+  case 'r':
+    if (replay_step_forward(g->state)) {
+      highlight_last_move(g);
+    }
+    break;
+  case 'h':
+    return (Cmd_t){CMD_PUSH, history_view_screen(g->state, 1)};
+  case '?':
+    return (Cmd_t){CMD_PUSH, replay_help_screen()};
+  case 'q':
+    return (Cmd_t){CMD_POP, NULL};
+  case 12: /* Ctrl-L, same full repaint as live play */
+    render_force_repaint();
+    break;
+  default:
+    break;
+  }
+  return CMD_STAY;
+}
+
 static Cmd_t game_handle(void *ctx, const Event_t *ev) {
   Game_t *g = (Game_t *)ctx;
+
+  if (g->mode == GAME_MODE_REPLAY) {
+    return replay_handle(g, ev);
+  }
 
   /* A game-ending action discovered while some other screen (promotion,
    * resignation) was on top could not replace this screen directly; it is
@@ -1120,7 +1244,7 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
       return save_game_now(g);
     case 'H':
       /* Shift-H, not h: h is a file name and belongs to the move field. */
-      return (Cmd_t){CMD_PUSH, history_view_screen(g->state)};
+      return (Cmd_t){CMD_PUSH, history_view_screen(g->state, 0)};
     case '?':
       return (Cmd_t){CMD_PUSH, help_screen()};
     case 'x':
@@ -1228,27 +1352,51 @@ static void game_on_enter(void *ctx) {
   highlight_last_move(g);
 }
 
-Screen *game_screen(GameState *state) {
+/* A replay's own orientation and turn rules: fixed until F turns it (no
+ * side-to-move handoff, since there is no handover in a replay), and the
+ * board opens on the starting position with the whole game still ahead to
+ * step forward through — rewound with the same replay_step_back() stepping
+ * uses, rather than a second way to move history onto the redo list. */
+static void replay_on_enter(void *ctx) {
+  Game_t *g = (Game_t *)ctx;
+  clear_entry(g);
+  g->message[0] = '\0';
+  g->flipped = 0;
+  g->use_color = term_supports_color();
+  while (replay_step_back(g->state)) {
+  }
+  highlight_last_move(g);
+}
+
+static Screen *construct_game_screen(GameState *state, Game_mode_t mode) {
   static Screen screen;
 
   memset(&g_game, 0, sizeof(g_game));
   g_game.state = state;
+  g_game.mode = mode;
   g_game.sel_i = -1;
   g_game.sel_j = -1;
   g_game.last_from_i = -1;
   g_game.last_from_j = -1;
   g_game.last_to_i = -1;
   g_game.last_to_j = -1;
-  /* No cursor until an arrow key asks for one; see move_cursor. */
+  /* No cursor until an arrow key asks for one; see move_cursor. Unused in a
+   * replay, which never activates the cursor at all. */
   g_game.cursor_row = CURSOR_HOME_ROW;
   g_game.cursor_col = CURSOR_HOME_COL;
   g_game.cursor_active = 0;
 
-  screen.on_enter = game_on_enter;
+  screen.on_enter = (mode == GAME_MODE_REPLAY) ? replay_on_enter : game_on_enter;
   screen.on_exit = NULL;
   screen.handle = game_handle;
   screen.render = game_render;
   screen.ctx = &g_game;
   screen.opaque = 1;
   return &screen;
+}
+
+Screen *game_screen(GameState *state) { return construct_game_screen(state, GAME_MODE_LIVE); }
+
+Screen *replay_screen(GameState *state) {
+  return construct_game_screen(state, GAME_MODE_REPLAY);
 }

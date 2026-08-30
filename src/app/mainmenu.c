@@ -6,6 +6,7 @@
 #include "app/savedgames.h"
 #include "app/settings.h"
 #include "core/history.h"
+#include "core/outcome.h"
 #include "core/position.h"
 #include "ui/render.h"
 #include "version.h"
@@ -58,7 +59,11 @@ static Cmd_t on_game_loaded(void *ctx, GameState loaded) {
   MainMenu_t *m = (MainMenu_t *)ctx;
   free_state_lists(m->state);
   *m->state = loaded;
-  return (Cmd_t){CMD_PUSH, game_screen(m->state)};
+  /* A finished game opens for review, stepped through rather than played; an
+   * ongoing one continues in live play exactly as before. */
+  Screen *screen = (m->state->result_reason != OUTCOME_IN_PROGRESS) ? replay_screen(m->state)
+                                                                     : game_screen(m->state);
+  return (Cmd_t){CMD_PUSH, screen};
 }
 
 static Cmd_t activate(MainMenu_t *m, int k) {

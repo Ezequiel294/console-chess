@@ -66,6 +66,17 @@ static int apply(Cmd_t cmd) {
     pop();
     push(cmd.screen);
     break;
+  case CMD_POP_REPLACE:
+    pop(); /* the overlay returning this command */
+    pop(); /* the screen it was covering, now on top */
+    push(cmd.screen);
+    break;
+  case CMD_RESET:
+    while (g_depth > 0) {
+      pop();
+    }
+    push(cmd.screen);
+    break;
   case CMD_QUIT:
     return 0;
   }

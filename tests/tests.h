@@ -13,5 +13,6 @@ void test_perft(void);
 void test_outcome(void);
 void test_notation(void);
 void test_save(void);
+void test_replay(void);
 
 #endif /* TESTS_H */

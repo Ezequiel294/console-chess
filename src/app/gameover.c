@@ -2,6 +2,7 @@
 
 #include "app/game.h"
 #include "app/history_view.h"
+#include "app/mainmenu.h"
 #include "app/prompt.h"
 #include "app/save.h"
 #include "app/settings.h"
@@ -19,6 +20,7 @@
 #define C_RULE 244
 #define C_LABEL 246
 #define C_TITLE 250
+#define C_SUCCESS 82 /* a save that went through, read at a glance against C_LABEL's grey */
 #define MARK_CHECK '!'
 
 #define GAMEOVER_ITEM_COUNT 4
@@ -31,6 +33,7 @@ typedef struct {
   int selected;
   int row_y[GAMEOVER_ITEM_COUNT]; /* where each option was last drawn, for a click */
   char message[96];               /* what the last save attempt did, if any */
+  int message_is_error;           /* false for "Saved.", true for "Could not save." etc. */
 } GameOver_t;
 
 static GameOver_t g_gameover;
@@ -172,7 +175,9 @@ static const char *const MENU_LABELS[GAMEOVER_ITEM_COUNT] = {
 static int can_save_finished(const GameState *s) { return s->p_history_head != NULL; }
 
 static void do_save_finished(GameOver_t *g, const char *name, int name_given) {
-  save_perform(g->state, SAVE_STATUS_FINISHED, name, name_given, g->message, sizeof(g->message));
+  int ok = save_perform(g->state, SAVE_STATUS_FINISHED, name, name_given, g->message,
+                         sizeof(g->message));
+  g->message_is_error = !ok;
 }
 
 static int save_name_char_validate(const char *text, char *err, size_t err_len) {
@@ -199,6 +204,7 @@ static Cmd_t on_save_name_submit(void *ctx, const char *text) {
 static Cmd_t save_finished_game(GameOver_t *g) {
   if (!can_save_finished(g->state)) {
     snprintf(g->message, sizeof(g->message), "Nothing to save — no moves were played.");
+    g->message_is_error = 1;
     return CMD_STAY;
   }
   if (g->state->save_path[0] != '\0') {
@@ -218,13 +224,6 @@ static void gameover_render(void *ctx, Rect r) {
   char text[64];
   result_text(g->outcome, text, sizeof(text));
   draw_text(r, 1, 2, text, COLOR_DEFAULT, COLOR_DEFAULT, ATTR_BOLD);
-  if (outcome_is_player_chosen(g->outcome.reason)) {
-    draw_text(r, 1, 3, "(the players' choice, not forced by the rules)", C_LABEL, COLOR_DEFAULT,
-              ATTR_DIM);
-  }
-  if (g->message[0] != '\0') {
-    draw_text(r, 1, 4, g->message, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
-  }
 
   /* Checkmate always leaves the losing side's king in check; every other
    * ending leaves no king in check at all. */
@@ -238,13 +237,24 @@ static void gameover_render(void *ctx, Rect r) {
    * of the screen; the board gets whatever is left above them, with one
    * blank row of separation. */
   int menu_y = r.h - 1 - GAMEOVER_ITEM_COUNT;
-  Rect board_area = rect_sub(r, 1, 5, r.w - 2, menu_y - 5 - 1);
+  Rect board_area = rect_sub(r, 1, 4, r.w - 2, menu_y - 4 - 1);
   draw_final_board(&g->state->position, board_area, g->flipped, checked_i, checked_j);
 
   for (int k = 0; k < GAMEOVER_ITEM_COUNT; k++) {
     uint8_t attr = (k == g->selected) ? ATTR_REVERSE : ATTR_NONE;
     draw_text(r, 1, menu_y + k, MENU_LABELS[k], COLOR_DEFAULT, COLOR_DEFAULT, attr);
     g->row_y[k] = menu_y + k;
+  }
+  /* The save feedback sits right next to the button that produced it — "Save
+   * game" is always MENU_LABELS[0], at menu_y — rather than at the top of the
+   * screen, so it reads as a direct response to that action instead of
+   * scenery to double back and look for. Green only for an actual save;
+   * errors keep the screen's plain label colour. */
+  if (g->message[0] != '\0') {
+    int msg_x = 1 + (int)strlen(MENU_LABELS[0]) + 2;
+    int fg = g->message_is_error ? C_LABEL : C_SUCCESS;
+    uint8_t attr = g->message_is_error ? ATTR_NONE : ATTR_BOLD;
+    draw_text(r, msg_x, menu_y, g->message, fg, COLOR_DEFAULT, attr);
   }
   app_draw_bottom_hint(r, "↑/↓ + Enter, or click to select");
 }
@@ -262,12 +272,19 @@ static Cmd_t activate(GameOver_t *g, int k) {
   case 0:
     return save_finished_game(g);
   case 1:
+    /* CMD_RESET, not CMD_REPLACE: a game reached via Load Game has the
+     * saved-games list buried beneath it on the stack, and a fresh game
+     * should not carry that along — it becomes the whole stack, the same as
+     * starting one from the main menu. */
     reset_for_new_game(g->state);
-    return (Cmd_t){CMD_REPLACE, game_screen(g->state)};
+    return (Cmd_t){CMD_RESET, game_screen(g->state)};
   case 2:
-    return (Cmd_t){CMD_PUSH, history_view_screen(g->state)};
+    return (Cmd_t){CMD_PUSH, history_view_screen(g->state, 0)};
   case 3:
-    return (Cmd_t){CMD_POP, NULL};
+    /* CMD_RESET rather than CMD_POP: this game may have been reached via
+     * Load Game, which leaves the saved-games list on the stack beneath it —
+     * a plain pop would land back there instead of the main menu. */
+    return (Cmd_t){CMD_RESET, mainmenu_screen(g->state)};
   default:
     return CMD_STAY;
   }

@@ -73,7 +73,7 @@ Live play's `q` (the save/quit picker, which exits the program) is not reused: a
 
 ### Orientation and the handoff
 
-`replay_screen` initialises `flipped = 0` and never sets `awaiting_handoff`. `F` toggles `flipped`. Nothing else touches it. `f` is a file letter used by the typed-square field in live play, but the typed-square field does not exist in replay; the command is still bound to `F` (shift) rather than `f` so that the two modes never disagree about what a lowercase file letter means, and to match `H` for history.
+`replay_screen` initialises `flipped = 0` and never sets `awaiting_handoff`. `f` toggles `flipped`. Nothing else touches it. `f` and `h` are file letters used by the typed-square field in live play, but the typed-square field does not exist in replay, and no other replay command could be typed as one either — so there is no coordinate for a lowercase file letter to be confused with, and the replay's own commands (`f` flip, `h` history) use the same case as the rest of the live-play command set (`s`, `x`, `o`) rather than being shifted for a collision that cannot arise here.
 
 ## Risks / Trade-offs
 

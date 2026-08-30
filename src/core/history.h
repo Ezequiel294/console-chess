@@ -15,6 +15,18 @@ void free_history(History_node_t *head);
 History_node_t *history_pop_last(History_node_t **pp_history_head);
 Captures_node_t *captures_pop_last(Captures_node_t **pp_captures_head);
 
+/* Detaches and returns the first node (NULL if empty), for redo stepping
+ * forward through the earliest move undone so far — the head of a redo list
+ * built by history_push_front. The returned node's p_next is NULL. */
+History_node_t *history_pop_first(History_node_t **pp_history_head);
+
+/* Prepends an already-built node (its p_next is overwritten) to the head, for
+ * undo moving a node from the history list onto the redo list: each
+ * successive undo prepends the move it removes, so the redo list's head stays
+ * the chronologically earliest undone move and history ++ redo stays the
+ * whole game in played order. */
+void history_push_front(History_node_t **pp_history_head, History_node_t *node);
+
 /* Appends an already-built node (its p_next is overwritten) to the tail, for
  * redo re-inserting a node popped earlier by history_pop_last. */
 void history_push_node(History_node_t **pp_history_head, History_node_t *node);

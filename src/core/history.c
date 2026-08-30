@@ -98,6 +98,21 @@ void history_push_node(History_node_t **pp_history_head, History_node_t *node) {
   }
 }
 
+History_node_t *history_pop_first(History_node_t **pp_history_head) {
+  History_node_t *first = *pp_history_head;
+  if (first == NULL) {
+    return NULL;
+  }
+  *pp_history_head = first->p_next;
+  first->p_next = NULL;
+  return first;
+}
+
+void history_push_front(History_node_t **pp_history_head, History_node_t *node) {
+  node->p_next = *pp_history_head;
+  *pp_history_head = node;
+}
+
 Captures_node_t *captures_pop_last(Captures_node_t **pp_captures_head) {
   if (*pp_captures_head == NULL) {
     return NULL;

@@ -41,5 +41,5 @@ This replaces the earlier "dormant, nothing to reconcile" position. The conflict
 - **THEN** the saved game is byte-for-byte what it was before the replay opened
 
 #### Scenario: Reopening after stepping
-- **WHEN** a replay is stepped back and then reopened later
-- **THEN** it opens at the end of the game again, because nothing about the stepping was recorded
+- **WHEN** a replay is stepped forward and then reopened later
+- **THEN** it opens at the start of the game again, because nothing about the stepping was recorded
