@@ -1,18 +1,20 @@
+# game-replay Specification
+
 ## Purpose
 
 Lets a finished game be walked back and forth on the board it was played on, so a player can see how the game actually unfolded position by position rather than reading a list of moves and imagining it.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: A finished game opens as a replay
 
-Choosing a finished saved game SHALL open it on the board in replay mode, positioned at the end of the game — the final position, exactly as the players left it. A saved game that is still in progress SHALL continue to open in live play, unchanged.
+Choosing a finished saved game SHALL open it on the board in replay mode, positioned at the start of the game — the starting position, with the whole game ahead to step forward through. A saved game that is still in progress SHALL continue to open in live play, unchanged.
 
 Replay mode SHALL be visibly distinct from live play: what a player can do differs, so what the screen offers must differ with it.
 
 #### Scenario: Opening a finished game
 - **WHEN** the player chooses a finished game from the list of saved games
-- **THEN** it opens on the board showing the final position, in replay mode
+- **THEN** it opens on the board showing the starting position, in replay mode
 
 #### Scenario: Opening an unfinished game
 - **WHEN** the player chooses a saved game that is still in progress
@@ -118,7 +120,7 @@ Help within a replay SHALL describe the replay's keys, so that the screen never 
 
 ### Requirement: The end of the game is stated, not screened
 
-When the replay is at the final position of the game, it SHALL state the result and the reason — who won and how, or that it was a draw and why — on the board screen itself.
+When the replay is at the final position of the game, it SHALL state the result and the reason — who won and how, or that it was a draw and why — on the board screen itself, in place of stating the side to move: the game is over, so there is no turn left to name.
 
 A replay SHALL NOT show the game-result screen. Ending the replay at its last move would make the final position a place the player cannot step back out of, which is exactly the position most worth examining.
 
@@ -140,7 +142,7 @@ A replay SHALL NOT show the game-result screen. Ending the replay at its last mo
 
 ### Requirement: Every view follows the step
 
-Stepping SHALL update everything the screen shows about the game together: the board, the captured pieces, the check indicator, the last-move marking, and the side to move.
+Stepping SHALL update everything the screen shows about the game together: the board, the captured pieces, the check indicator, the last-move marking, and the side to move (or, at the final position, the result in its place — see The end of the game is stated, not screened).
 
 #### Scenario: Views agree
 - **WHEN** the player steps backward over a capture
@@ -152,7 +154,7 @@ Stepping SHALL update everything the screen shows about the game together: the b
 - **THEN** the check indicator is shown again, as it was during the game
 
 #### Scenario: Side to move
-- **WHEN** the player steps to any position
+- **WHEN** the player steps to any position other than the final one
 - **THEN** the side that was to move in that position is stated, whichever way the board is facing
 
 ### Requirement: Leaving a replay
@@ -165,4 +167,4 @@ Quitting a replay SHALL leave it directly, without asking whether to save: nothi
 
 #### Scenario: Reopening
 - **WHEN** the player opens the same finished game again
-- **THEN** it opens at the final position, as it did the first time, regardless of where the previous replay was left
+- **THEN** it opens at the starting position, as it did the first time, regardless of where the previous replay was left
