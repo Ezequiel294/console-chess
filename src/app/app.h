@@ -25,6 +25,18 @@ typedef enum {
   CMD_PUSH,
   CMD_POP,
   CMD_REPLACE,
+  /* Pops the screen returning this command (typically an overlay, e.g. a
+   * confirmation) and then replaces the screen it was covering — the two
+   * pops and one push a single Cmd_t cannot otherwise express. Used when an
+   * overlay's own choice ends the game underneath it (resigning, accepting a
+   * draw): without this, the screen beneath has to notice on its own next
+   * event, one extra keypress away. */
+  CMD_POP_REPLACE,
+  /* Clears the whole screen stack and pushes one screen as the new root —
+   * "back to the start", regardless of how deep the stack got (e.g. a game
+   * opened from the saved-games list, so a raw pop would reveal that list
+   * instead of the main menu). */
+  CMD_RESET,
   CMD_QUIT
 } Cmd_type_t;
 
