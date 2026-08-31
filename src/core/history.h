@@ -6,7 +6,11 @@
 /* The captured-pieces, move-history, and position-hash linked lists. */
 
 void update_captures(Captures_node_t **pp_captures_head, Piece_t piece);
-void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3], Move move);
+/* remaining_ms is what each side has left after this move, indexed by Color —
+ * pass both zero for an untimed game, where nothing reads them back. See
+ * History_node_t in types.h for why the reading travels on the node. */
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3],
+                    Move move, const int32_t remaining_ms[2]);
 void free_captures(Captures_node_t *head);
 void free_history(History_node_t *head);
 

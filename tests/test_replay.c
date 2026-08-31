@@ -45,7 +45,8 @@ static void play_moves(GameState *state, const char *start_fen, const char *cons
     }
 
     make(&state->position, move);
-    update_history(&state->p_history_head, from, to, move);
+    static const int32_t untimed[2] = {0, 0};
+    update_history(&state->p_history_head, from, to, move, untimed);
     push_hash(&state->p_hash_history_head, state->position.hash);
   }
 }

@@ -432,8 +432,12 @@ Save_read_result_t save_read(const char *path, GameState *out) {
       update_captures(captures, (Piece_t){.color = captured_color, .type = move.captured});
     }
 
+    /* Zero until the format carries per-move readings — see the next
+     * commit; an untimed game's history nodes carry zeros for good. */
+    const int32_t node_remaining[2] = {0, 0};
+
     make(&loaded.position, move);
-    update_history(&loaded.p_history_head, from, to, move);
+    update_history(&loaded.p_history_head, from, to, move, node_remaining);
     push_hash(&loaded.p_hash_history_head, loaded.position.hash);
   }
 

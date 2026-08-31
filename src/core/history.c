@@ -45,6 +45,9 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece) {
  * - pp_history_head: Double pointer to the head of the linked list of move history.
  * - prev_pos: The previous position of the piece as a string (e.g., "e2").
  * - next_pos: The next position of the piece as a string (e.g., "e4").
+ * - move: The move itself, in full, so undo can unmake exactly what was made.
+ * - remaining_ms: What each side had left after this move, indexed by Color;
+ *   both zero in an untimed game.
  *
  * The function performs the following steps:
  * 1. Allocates memory for a new history node. If memory allocation fails, prints an error message and exits.
@@ -52,7 +55,8 @@ void update_captures(Captures_node_t **pp_captures_head, Piece_t piece) {
  * 3. If the history list is empty, sets the head of the list to the new node.
  * 4. If the history list is not empty, traverses to the end of the list and adds the new node.
  */
-void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3], Move move) {
+void update_history(History_node_t **pp_history_head, char prev_pos[3], char next_pos[3],
+                    Move move, const int32_t remaining_ms[2]) {
   History_node_t *p_new_node = (History_node_t *)malloc(sizeof(History_node_t));
   if (p_new_node == NULL) {
     fprintf(stderr, "Memory allocation failed.\n");
@@ -62,6 +66,8 @@ void update_history(History_node_t **pp_history_head, char prev_pos[3], char nex
   strcpy(p_new_node->prev_pos, prev_pos);
   strcpy(p_new_node->next_pos, next_pos);
   p_new_node->move = move;
+  p_new_node->remaining_ms[WHITE] = remaining_ms[WHITE];
+  p_new_node->remaining_ms[BLACK] = remaining_ms[BLACK];
   p_new_node->p_next = NULL;
 
   history_push_node(pp_history_head, p_new_node);
