@@ -81,6 +81,27 @@ Outcome_t outcome(const Position *pos, const uint64_t *hash_history, int hash_hi
   return (Outcome_t){.reason = OUTCOME_IN_PROGRESS, .winner = NONE};
 }
 
+int outcome_can_mate(const Position *pos, Color side) {
+  int minors = 0;
+
+  for (int i = 0; i < 8; i++) {
+    for (int j = 0; j < 8; j++) {
+      Piece_t p = pos->board[i][j];
+      if (p.type == FREE || p.type == KING || p.color != side) {
+        continue;
+      }
+      if (p.type == PAWN || p.type == ROOK || p.type == QUEEN) {
+        return 1; /* a pawn promotes, and either major mates outright */
+      }
+      minors++;
+      if (minors > 1) {
+        return 1; /* two minors: not forceable, but a mate position exists */
+      }
+    }
+  }
+  return 0; /* a bare king, or a king with one minor */
+}
+
 int outcome_is_player_chosen(Outcome_reason_t reason) {
   return reason == OUTCOME_RESIGNATION || reason == OUTCOME_DRAW_AGREEMENT;
 }

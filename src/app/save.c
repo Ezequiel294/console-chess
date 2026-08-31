@@ -76,6 +76,10 @@ static const char *reason_to_str(int reason) {
     return "resignation";
   case OUTCOME_DRAW_AGREEMENT:
     return "agreement";
+  case OUTCOME_TIMEOUT:
+    return "timeout";
+  case OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL:
+    return "timeout-insufficient-material";
   case OUTCOME_IN_PROGRESS:
     break;
   }
@@ -94,6 +98,8 @@ static int str_to_reason(const char *s, int *out) {
       {"repetition", OUTCOME_DRAW_REPETITION},
       {"resignation", OUTCOME_RESIGNATION},
       {"agreement", OUTCOME_DRAW_AGREEMENT},
+      {"timeout", OUTCOME_TIMEOUT},
+      {"timeout-insufficient-material", OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL},
   };
   for (size_t i = 0; i < sizeof(TABLE) / sizeof(TABLE[0]); i++) {
     if (strcmp(s, TABLE[i].name) == 0) {

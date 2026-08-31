@@ -70,6 +70,12 @@ static const char *result_text(Outcome_t oc, char *buf, size_t n) {
   case OUTCOME_DRAW_AGREEMENT:
     snprintf(buf, n, "Draw — by agreement");
     break;
+  case OUTCOME_TIMEOUT:
+    snprintf(buf, n, "%s wins — on time", who);
+    break;
+  case OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL:
+    snprintf(buf, n, "Draw — out of time, with insufficient material to mate");
+    break;
   case OUTCOME_IN_PROGRESS:
     snprintf(buf, n, "");
     break;

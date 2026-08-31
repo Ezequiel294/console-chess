@@ -626,6 +626,11 @@ static const char *outcome_message(Outcome_t oc) {
     return (oc.winner == WHITE) ? "Black resigns — White wins!" : "White resigns — Black wins!";
   case OUTCOME_DRAW_AGREEMENT:
     return "Draw — by agreement.";
+  case OUTCOME_TIMEOUT:
+    return (oc.winner == WHITE) ? "Black ran out of time — White wins!"
+                                : "White ran out of time — Black wins!";
+  case OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL:
+    return "Draw — a clock ran out, with nothing left on the board to mate with.";
   case OUTCOME_IN_PROGRESS:
     break;
   }
