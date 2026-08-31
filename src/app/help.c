@@ -92,11 +92,11 @@ static Cmd_t help_handle(void *ctx, const Event_t *ev) {
 }
 
 Screen *help_screen(void) {
-  static Screen screen = {NULL, NULL, help_handle, help_render, NULL, 0};
+  static Screen screen = {NULL, NULL, help_handle, help_render, NULL, 0, NULL, NULL};
   return &screen;
 }
 
 Screen *replay_help_screen(void) {
-  static Screen screen = {NULL, NULL, help_handle, replay_help_render, NULL, 0};
+  static Screen screen = {NULL, NULL, help_handle, replay_help_render, NULL, 0, NULL, NULL};
   return &screen;
 }

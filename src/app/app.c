@@ -51,6 +51,51 @@ static void pop(void) {
 
 static Screen *top(void) { return g_depth > 0 ? g_stack[g_depth - 1] : NULL; }
 
+/* How long the loop may wait before the next frame: the soonest request on
+ * the stack, or -1 when nothing on it asks to be woken — in which case the
+ * wait is a true indefinite block, doing no work and drawing no frame until
+ * something happens. */
+static int stack_wake_in_ms(void) {
+  int soonest = -1;
+  for (int i = 0; i < g_depth; i++) {
+    Screen *screen = g_stack[i];
+    if (screen->wake_in_ms == NULL) {
+      continue;
+    }
+    int wake = screen->wake_in_ms(screen->ctx);
+    if (wake < 0) {
+      continue;
+    }
+    if (soonest < 0 || wake < soonest) {
+      soonest = wake;
+    }
+  }
+  return soonest;
+}
+
+/* Every screen that asked for it, top to bottom, with one reading of the
+ * clock shared between them so two screens ticked in the same pass can never
+ * disagree about what time it is. The clock is read only when something
+ * actually wants a tick, so the idle path costs nothing. */
+static void tick_stack(void) {
+  int any = 0;
+  for (int i = 0; i < g_depth; i++) {
+    if (g_stack[i]->tick != NULL) {
+      any = 1;
+      break;
+    }
+  }
+  if (!any) {
+    return;
+  }
+  uint64_t now = term_now_ms();
+  for (int i = g_depth - 1; i >= 0; i--) {
+    if (g_stack[i]->tick != NULL) {
+      g_stack[i]->tick(g_stack[i]->ctx, now);
+    }
+  }
+}
+
 /* Returns 0 when the application should stop. */
 static int apply(Cmd_t cmd) {
   switch (cmd.type) {
@@ -133,9 +178,18 @@ int app_run(Screen *initial) {
 
   int running = 1;
   while (running) {
+    /* Before the frame, so what a tick changed is what the frame shows. */
+    tick_stack();
     draw_frame(render_bounds());
 
-    Event_t ev = input_next();
+    Event_t ev = input_next_within(stack_wake_in_ms());
+
+    if (ev.type == EV_TIMEOUT) {
+      /* Swallowed here and never dispatched: an expiry says nothing about
+       * what the user did, and no screen's handle should have to know the
+       * difference. What it is for is the tick at the top of this loop. */
+      continue;
+    }
 
     if (ev.type == EV_RESIZE) {
       Term_size_t now = term_size();

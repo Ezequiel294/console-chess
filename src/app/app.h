@@ -4,6 +4,8 @@
 #include "ui/input.h"
 #include "ui/render.h"
 
+#include <stdint.h>
+
 /* The screen stack and the loop that drives it.
  *
  * A screen is a vtable and a context pointer. It is handed the region it may
@@ -54,6 +56,31 @@ struct Screen {
   /* Whether this screen covers the display entirely. Rendering starts at the
    * topmost opaque screen, so an overlay is drawn over what is beneath it. */
   int opaque;
+
+  /* Being woken by time rather than by input. Both are optional and NULL by
+   * default, so a screen that does not ask for them behaves exactly as it
+   * did before either existed.
+   *
+   * wake_in_ms says how soon this screen needs waking, in milliseconds, or
+   * -1 for "not on my account". The loop waits no longer than the soonest
+   * request across the whole stack, and blocks indefinitely when nobody
+   * asks — a menu, a replay, or an untimed game does no work and draws no
+   * frame until something happens.
+   *
+   * tick says that time has passed, and is handed the same monotonic
+   * reading (see term_now_ms) every screen on the stack gets for that pass.
+   * Unlike handle, it reaches screens beneath an overlay as well as the top
+   * one: input is a statement about what the user did, and only the top
+   * screen may act on it, but a tick is a statement about the world, and the
+   * world does not stop for a covered screen — a game under a promotion
+   * picker is still a game whose clock is running.
+   *
+   * It returns nothing, deliberately: a screen that is not on top must not
+   * be able to move the stack. A screen whose state changed such that it
+   * should be left says so on the next event it handles, the way the game
+   * screen already does for an ending discovered under an overlay. */
+  int (*wake_in_ms)(void *ctx);
+  void (*tick)(void *ctx, uint64_t now_ms);
 };
 
 /* Chess never nests more than three deep. Fixed and statically allocated: a
