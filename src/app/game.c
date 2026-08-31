@@ -9,6 +9,7 @@
 #include "app/save.h"
 #include "app/settings.h"
 #include "core/board.h"
+#include "core/chessclock.h"
 #include "core/history.h"
 #include "core/movegen.h"
 #include "core/notation.h"
@@ -40,6 +41,16 @@
 #define C_LABEL 246
 #define C_HINT 244
 #define C_HINT_DIM 240
+
+/* The two clock rectangles. Fixed rather than drawn from settings_palette():
+ * these are the *pieces'* colours — light with dark digits for White, dark
+ * with light digits for Black — rather than the board's tint scheme, so
+ * which clock belongs to which side reads the same under every colour
+ * scheme Settings offers. */
+#define C_CLOCK_WHITE_FG 232
+#define C_CLOCK_WHITE_BG 254
+#define C_CLOCK_BLACK_FG 252
+#define C_CLOCK_BLACK_BG 236
 
 /* Legal, empty destination: centred, shape-based already, so it is identical
  * in colour and monochrome mode. */
@@ -108,8 +119,9 @@ typedef struct {
   /* Between turns: the board is about to flip and the next player has not yet
    * said they are looking. In pass-and-play that gesture is the handoff, and
    * a human paces it better than a constant does — this is the only way the
-   * board changes hands, deliberately: it doubles as the "I'm ready" signal a
-   * future timed mode needs, so it is never skipped or made optional. */
+   * board changes hands, deliberately, and it is never skipped or made
+   * optional. In a timed game it is also the clock press: the mover's own
+   * time runs until it (see press_clock_and_flip). */
   int awaiting_handoff;
 
   int has_draw_offer;
@@ -127,6 +139,13 @@ typedef struct {
   char message[96];
 } Game_t;
 
+/* How often a running clock asks to be woken. Fast enough for the tenths
+ * shown under ten seconds, and slow enough to be free: the reading is a
+ * function of two timestamps rather than something a tick accumulates, so
+ * the work per wake is one clock reading, one frame composition, and a diff
+ * that writes nothing at all when the digits have not changed. */
+#define CLOCK_WAKE_MS 100
+
 static Game_t g_game;
 
 /* The move a promotion overlay is waiting on: everything finish_move() needs
@@ -142,6 +161,25 @@ typedef struct {
 static Promotion_request_t g_promo_request;
 
 static Color side_to_move(const Game_t *g) { return g->state->position.side_to_move; }
+
+static Chess_clock_t *game_clock(Game_t *g) { return &g->state->clock; }
+static const Chess_clock_t *game_clock_const(const Game_t *g) { return &g->state->clock; }
+
+/* Whether the game can be drawn at all — the same question app.c asks before
+ * it shows the too-small screen in place of the whole stack. Asked here
+ * because a game that cannot be displayed is not a game either player can
+ * play, and neither may be charged for the time it is unplayable. */
+static int game_fits(void) {
+  Rect bounds = render_bounds();
+  int width = glyphs_width();
+  return bounds.w >= layout_min_cols(width) && bounds.h >= layout_min_rows(width);
+}
+
+/* Both sides' readings at now_ms, in the order History_node_t stores them. */
+static void clock_snapshot(const Game_t *g, uint64_t now_ms, int32_t out[2]) {
+  out[WHITE] = clock_remaining(game_clock_const(g), WHITE, now_ms);
+  out[BLACK] = clock_remaining(game_clock_const(g), BLACK, now_ms);
+}
 
 /* Saving the opening position with no moves played would create a file with
  * nothing worth loading. */
@@ -422,6 +460,142 @@ static void draw_board(const Game_t *g, Rect r, const Layout *lay) {
   }
 }
 
+/* --- The clocks ---------------------------------------------------------- */
+
+static const char *side_name(Color side) { return (side == WHITE) ? "White" : "Black"; }
+
+/* What each clock reads, indexed by Color.
+ *
+ * In live play this is the running reading, computed from the time control
+ * and two timestamps. In a replay it is what the players actually had at the
+ * position being shown, read off the history node the step moved to — and
+ * the game's initial time at the starting position, since that is what both
+ * sides had before anything was played. Nothing runs in a replay and nothing
+ * is recomputed from the time control, so a replay left open for an hour
+ * shows the same pair of readings it did at the start. */
+static void clock_readings(const Game_t *g, int32_t out[2]) {
+  if (g->mode == GAME_MODE_REPLAY) {
+    /* The final position is where the clocks actually stopped, which is not
+     * always the reading the last move left: a game lost on time ended
+     * partway through the turn after it, with the loser at zero. The file
+     * records that reading separately for exactly this reason, and for every
+     * other ending the two agree. */
+    if (g->state->p_redo_head == NULL) {
+      out[WHITE] = game_clock_const(g)->remaining_ms[WHITE];
+      out[BLACK] = game_clock_const(g)->remaining_ms[BLACK];
+      return;
+    }
+    const History_node_t *last = NULL;
+    for (const History_node_t *p = g->state->p_history_head; p != NULL; p = p->p_next) {
+      last = p;
+    }
+    if (last == NULL) {
+      out[WHITE] = game_clock_const(g)->initial_ms;
+      out[BLACK] = game_clock_const(g)->initial_ms;
+    } else {
+      out[WHITE] = last->remaining_ms[WHITE];
+      out[BLACK] = last->remaining_ms[BLACK];
+    }
+    return;
+  }
+  clock_snapshot(g, term_now_ms(), out);
+}
+
+static void draw_centred(Rect r, int y, const char *text, int fg, int bg, uint8_t attr) {
+  int x = (r.w - (int)strlen(text)) / 2;
+  if (x < 0) {
+    x = 0;
+  }
+  draw_text(r, x, y, text, fg, bg, attr);
+}
+
+/* One clock: a box carrying its side's name and its formatted time.
+ *
+ * The name is there whether or not there is colour to distinguish them by,
+ * because on a terminal drawing none the backgrounds are dropped and the
+ * name is the only thing left saying which clock this is. */
+static void draw_clock_box(const Game_t *g, Rect r, Color side, int32_t ms) {
+  if (r.w < 4 || r.h < 3) {
+    return;
+  }
+  int fg = (side == WHITE) ? C_CLOCK_WHITE_FG : C_CLOCK_BLACK_FG;
+  int bg = (side == WHITE) ? C_CLOCK_WHITE_BG : C_CLOCK_BLACK_BG;
+  if (!g->use_color) {
+    fg = COLOR_DEFAULT;
+    bg = COLOR_DEFAULT;
+  }
+
+  draw_fill(r, ' ', fg, bg, ATTR_NONE);
+  draw_box(r, fg, bg, ATTR_NONE);
+
+  Rect inner = rect_inset(r, 1, 1);
+  if (inner.h < 1) {
+    return;
+  }
+  char time_text[CLOCK_FORMAT_MAX];
+  clock_format(ms, time_text, sizeof(time_text));
+
+  int top = (inner.h - 2) / 2;
+  if (top < 0) {
+    top = 0;
+  }
+  draw_centred(inner, top, side_name(side), fg, bg, ATTR_NONE);
+  draw_centred(inner, top + 1, time_text, fg, bg, ATTR_BOLD);
+}
+
+/* The pair, spanning the board's height between them with a one-row gap, so
+ * they grow and shrink with the board and line up with its top and bottom
+ * edges. The lower one always belongs to the side the board currently faces
+ * — the near player's clock is nearest them, exactly as their pieces are —
+ * which follows g->flipped and so turns with the board at a handover and at
+ * a replay's manual flip without any state of its own. */
+static void draw_clocks(const Game_t *g, Rect r, int board_h) {
+  if (r.w <= 0 || board_h < 3) {
+    return;
+  }
+  int box_h = (board_h - 1) / 2;
+  if (box_h < 3) {
+    return;
+  }
+
+  int32_t reading[2];
+  clock_readings(g, reading);
+
+  Color near = g->flipped ? BLACK : WHITE;
+  Color far = (near == WHITE) ? BLACK : WHITE;
+
+  draw_clock_box(g, rect_sub(r, 0, 0, r.w, box_h), far, reading[far]);
+  draw_clock_box(g, rect_sub(r, 0, board_h - box_h, r.w, box_h), near, reading[near]);
+}
+
+/* The narrow fallback: two compact lines at the top of the panel, for the
+ * terminal that is wide enough for the game but not for a clock column
+ * beside a usable panel. Returns the rows used. */
+static int draw_panel_clocks(const Game_t *g, Rect inner) {
+  int32_t reading[2];
+  clock_readings(g, reading);
+
+  Color near = g->flipped ? BLACK : WHITE;
+  Color far = (near == WHITE) ? BLACK : WHITE;
+  const Color order[2] = {far, near};
+
+  for (int k = 0; k < 2; k++) {
+    Color side = order[k];
+    int fg = (side == WHITE) ? C_CLOCK_WHITE_FG : C_CLOCK_BLACK_FG;
+    int bg = (side == WHITE) ? C_CLOCK_WHITE_BG : C_CLOCK_BLACK_BG;
+    if (!g->use_color) {
+      fg = COLOR_DEFAULT;
+      bg = COLOR_DEFAULT;
+    }
+    char time_text[CLOCK_FORMAT_MAX];
+    clock_format(reading[side], time_text, sizeof(time_text));
+    char line[32];
+    snprintf(line, sizeof(line), " %-5s %8s ", side_name(side), time_text);
+    draw_text(inner, 0, k, line, fg, bg, ATTR_NONE);
+  }
+  return 2;
+}
+
 static int draw_capture_row(Rect r, int y, const char *label, Captures_node_t *head) {
   draw_text(r, 0, y, label, C_LABEL, COLOR_DEFAULT, ATTR_NONE);
   int x = 0;
@@ -437,13 +611,19 @@ static int draw_capture_row(Rect r, int y, const char *label, Captures_node_t *h
   return y + 2;
 }
 
-static void draw_panel(const Game_t *g, Rect r) {
+/* top_rows is the compact clock fallback's two lines, or 0 — which is what
+ * an untimed game always passes, so its panel is exactly what it was before
+ * a clock existed. */
+static void draw_panel(const Game_t *g, Rect r, int top_rows) {
   if (r.w < 8 || r.h < 4) {
     return;
   }
   Rect inner = rect_sub(r, 1, 0, r.w - 1, r.h);
 
   int y = 0;
+  if (top_rows > 0) {
+    y = draw_panel_clocks(g, inner);
+  }
   y = draw_capture_row(inner, y, "Taken by White", g->state->p_captures_white_head);
   y = draw_capture_row(inner, y, "Taken by Black", g->state->p_captures_black_head);
 
@@ -589,7 +769,7 @@ static void game_render(void *ctx, Rect r) {
 
   /* Laid out from the region handed in, every frame. Nothing here remembers a
    * size, so there is no stale layout for a resize to leave behind. */
-  if (!layout_compute(r, glyphs_width(), &lay)) {
+  if (!layout_compute(r, glyphs_width(), clock_is_timed(game_clock(g)), &lay)) {
     return;
   }
 
@@ -604,7 +784,22 @@ static void game_render(void *ctx, Rect r) {
   draw_text(lay.title, 1, 0, title, C_LABEL, COLOR_DEFAULT, ATTR_BOLD);
 
   draw_board(g, lay.board, &lay);
-  draw_panel(g, lay.panel);
+
+  /* An untimed game draws no clock at all, and its panel keeps the whole
+   * width beside the board — the screen is exactly what it is without this
+   * capability. A timed game gets the two rectangles when there is a column
+   * for them, and the compact fallback inside the panel when there is not:
+   * a timed game whose clocks are invisible must not be possible. */
+  int timed = clock_is_timed(game_clock(g));
+  int panel_top_rows = 0;
+  if (timed) {
+    if (lay.clock.w > 0) {
+      draw_clocks(g, lay.clock, lay.board.h);
+    } else {
+      panel_top_rows = 2;
+    }
+  }
+  draw_panel(g, lay.panel, panel_top_rows);
   draw_status(g, lay.status);
 }
 
@@ -626,6 +821,11 @@ static const char *outcome_message(Outcome_t oc) {
     return (oc.winner == WHITE) ? "Black resigns — White wins!" : "White resigns — Black wins!";
   case OUTCOME_DRAW_AGREEMENT:
     return "Draw — by agreement.";
+  case OUTCOME_TIMEOUT:
+    return (oc.winner == WHITE) ? "Black ran out of time — White wins!"
+                                : "White ran out of time — Black wins!";
+  case OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL:
+    return "Draw — a clock ran out, with nothing left on the board to mate with.";
   case OUTCOME_IN_PROGRESS:
     break;
   }
@@ -635,6 +835,39 @@ static const char *outcome_message(Outcome_t oc) {
 /* Every move begins the handover gesture: the board is about to flip and the
  * next player confirms with Space before it does. */
 static void begin_turn(Game_t *g) { g->awaiting_handoff = 1; }
+
+static void apply_outcome(Game_t *g, Outcome_t oc);
+
+/* Whether a clock has reached zero, and the ending if it has.
+ *
+ * Consulted from the tick, which is the only place it can be discovered in
+ * the case that matters — nobody is pressing anything — and again from
+ * finish_move, so a move submitted in the same instant a clock ran out is
+ * refused rather than played by a side that no longer has the time for it.
+ *
+ * Whether the opponent could ever mate with what they hold decides win or
+ * draw. That is a question about one side, which is why it is
+ * outcome_can_mate and not the both-sides insufficient-material test. */
+static int check_flag_fall(Game_t *g, uint64_t now_ms) {
+  if (g->mode != GAME_MODE_LIVE || g->game_over) {
+    return 0;
+  }
+  Color loser = clock_expired_side(game_clock(g), now_ms);
+  if (loser == NONE) {
+    return 0;
+  }
+  Color winner = (loser == WHITE) ? BLACK : WHITE;
+  clock_stop(game_clock(g), now_ms);
+
+  Outcome_t oc;
+  if (outcome_can_mate(&g->state->position, winner)) {
+    oc = (Outcome_t){.reason = OUTCOME_TIMEOUT, .winner = winner};
+  } else {
+    oc = (Outcome_t){.reason = OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL, .winner = NONE};
+  }
+  apply_outcome(g, oc);
+  return 1;
+}
 
 static void apply_outcome(Game_t *g, Outcome_t oc) {
   g->game_over = 1;
@@ -650,6 +883,15 @@ static void apply_outcome(Game_t *g, Outcome_t oc) {
  * that decides whether the game just ended. */
 static void finish_move(Game_t *g, Move move) {
   GameState *state = g->state;
+  uint64_t now = term_now_ms();
+
+  /* A side whose clock has reached zero cannot complete a move: the game
+   * ended the moment the flag fell, whether or not a tick had got to it
+   * first. */
+  if (check_flag_fall(g, now)) {
+    return;
+  }
+
   Color mover = side_to_move(g);
 
   /* Playing a move rather than responding to a pending offer is a decline:
@@ -672,7 +914,14 @@ static void finish_move(Game_t *g, Move move) {
   index_to_square(move.to_i, move.to_j, to);
 
   make(&state->position, move);
-  update_history(&state->p_history_head, from, to, move);
+  /* The reading as of the move itself. The mover's clock keeps running from
+   * here until the handover, which is the clock press, and the press
+   * overwrites this node with what it produced — see press_clock_and_flip.
+   * A move that ends the game never reaches a handover, and the reading
+   * stored here is already the right one: both clocks stop at the move. */
+  int32_t remaining[2];
+  clock_snapshot(g, now, remaining);
+  update_history(&state->p_history_head, from, to, move, remaining);
 
   g->last_from_i = move.from_i;
   g->last_from_j = move.from_j;
@@ -692,6 +941,9 @@ static void finish_move(Game_t *g, Move move) {
   push_hash(&state->p_hash_history_head, state->position.hash);
 
   if (oc.reason != OUTCOME_IN_PROGRESS) {
+    /* Both clocks stop at the move, and no handover is asked for: there is
+     * nobody left for a press to start. */
+    clock_stop(game_clock(g), now);
     apply_outcome(g, oc);
   } else {
     begin_turn(g);
@@ -883,6 +1135,11 @@ static void move_cursor(Game_t *g, int drow, int dcol) {
  * carries its path over the same way (see savedgames.c), so continuing a
  * loaded game and saving it again still updates that same file. */
 static void do_save(Game_t *g, const char *name, int name_given) {
+  /* The file records what the clocks read at the moment of writing, which
+   * for a game saved partway through a turn is not what they read at the
+   * start of it. Syncing charges the mover for the interval so far and
+   * carries straight on, so saving neither costs nor returns any time. */
+  clock_sync(game_clock(g), term_now_ms());
   save_perform(g->state, SAVE_STATUS_ONGOING, name, name_given, g->message, sizeof(g->message));
 }
 
@@ -1139,6 +1396,35 @@ static Cmd_t offer_draw(Game_t *g) {
   return (Cmd_t){CMD_PUSH, confirm_screen(msg, on_draw_accept, on_draw_decline, g)};
 }
 
+/* The handover, which is the clock press: one gesture, one moment. The
+ * mover's increment goes on, the incoming player's clock starts, the move's
+ * history node records what that left both sides with, and the board flips
+ * — in that order, all at the same now.
+ *
+ * The time between the move and this press is the mover's, exactly as it is
+ * on a real clock: the handover is what stops their clock, so a slow handoff
+ * is spent out of their own time and can flag them (see check_flag_fall,
+ * which the tick runs throughout).
+ *
+ * In an untimed game every clock call here is a no-op and this is the
+ * handover exactly as it has always been. */
+static void press_clock_and_flip(Game_t *g) {
+  uint64_t now = term_now_ms();
+
+  clock_press(game_clock(g), now);
+
+  History_node_t *last = NULL;
+  for (History_node_t *p = g->state->p_history_head; p != NULL; p = p->p_next) {
+    last = p;
+  }
+  if (last != NULL) {
+    clock_snapshot(g, now, last->remaining_ms);
+  }
+
+  g->awaiting_handoff = 0;
+  g->flipped = (side_to_move(g) == BLACK);
+}
+
 /* --- Input ---------------------------------------------------------------- */
 
 /* Only f, u, r, the arrows, h, ?, q, Ctrl-L and F5 do anything here — every
@@ -1275,8 +1561,7 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
   if (g->awaiting_handoff) {
     if (ev->type == EV_KEY &&
         (ev->key.name == KEY_ENTER || (ev->key.name == KEY_CHAR && ev->key.ch == ' '))) {
-      g->awaiting_handoff = 0;
-      g->flipped = (side_to_move(g) == BLACK);
+      press_clock_and_flip(g);
     }
     return CMD_STAY;
   }
@@ -1341,6 +1626,61 @@ static Cmd_t game_handle(void *ctx, const Event_t *ev) {
   return CMD_STAY;
 }
 
+/* --- Time ----------------------------------------------------------------- */
+
+/* How soon this screen needs waking. 100 ms while a clock is actually
+ * running in live play, and -1 — a true indefinite block, no frames and no
+ * processor time — in every other case: an untimed game has no clock, a
+ * replay's clocks are read rather than run, a game that has ended has
+ * stopped both, and a terminal too small to draw the game is one where no
+ * time may be charged at all. */
+static int game_wake_in_ms(void *ctx) {
+  Game_t *g = (Game_t *)ctx;
+  if (g->mode != GAME_MODE_LIVE || g->game_over) {
+    return -1;
+  }
+  if (!clock_is_timed(game_clock(g))) {
+    return -1;
+  }
+  if (!game_fits()) {
+    return -1;
+  }
+  return (clock_running_side(game_clock(g)) == NONE) ? -1 : CLOCK_WAKE_MS;
+}
+
+/* Time passing, which this screen is told about whether or not it is on top
+ * — an overlay covering the board does not stop the turn, so help, the move
+ * list, the promotion picker, a resignation or draw confirmation, the save
+ * prompt and the quit picker all leave the clock running underneath them.
+ *
+ * The one thing that does stop it is the game being undrawable: while the
+ * terminal is too small the clock is held, and when the space comes back the
+ * running side's interval restarts from now, so nothing is charged for the
+ * gap. Restarting the interval rather than subtracting the gap is what keeps
+ * every reading a function of two timestamps. */
+static void game_tick(void *ctx, uint64_t now_ms) {
+  Game_t *g = (Game_t *)ctx;
+  if (g->mode != GAME_MODE_LIVE || g->game_over) {
+    return;
+  }
+  if (!clock_is_timed(game_clock(g))) {
+    return;
+  }
+  if (!game_fits()) {
+    clock_hold(game_clock(g), now_ms);
+    return;
+  }
+  clock_resume(game_clock(g), now_ms);
+
+  /* Sets game_over and pending_outcome rather than moving the stack: this
+   * runs for a covered screen too, and a screen that is not on top must not
+   * push, pop or replace anything. The status line states the result at
+   * once, and the result screen arrives on the next event this screen
+   * handles — the path every ending discovered under an overlay already
+   * takes. */
+  check_flag_fall(g, now_ms);
+}
+
 /* --- Construction ------------------------------------------------------- */
 
 static void game_on_enter(void *ctx) {
@@ -1350,6 +1690,13 @@ static void game_on_enter(void *ctx) {
   g->flipped = (side_to_move(g) == BLACK);
   g->use_color = term_supports_color();
   highlight_last_move(g);
+  /* The side to move is running from the moment the board appears, with no
+   * press needed to begin — a fresh game and a loaded one alike. A loaded
+   * game resumes from what it had left, mid-turn included, since that is
+   * what its remaining times already hold. */
+  if (!g->game_over) {
+    clock_start(game_clock(g), side_to_move(g), term_now_ms());
+  }
 }
 
 /* A replay's own orientation and turn rules: fixed until F turns it (no
@@ -1362,6 +1709,9 @@ static void replay_on_enter(void *ctx) {
   clear_entry(g);
   g->message[0] = '\0';
   g->flipped = 0;
+  /* Nothing runs in a replay: the readings come off the history nodes the
+   * step moved to, not from a clock being charged. */
+  clock_stop(game_clock(g), 0);
   g->use_color = term_supports_color();
   while (replay_step_back(g->state)) {
   }
@@ -1392,6 +1742,11 @@ static Screen *construct_game_screen(GameState *state, Game_mode_t mode) {
   screen.render = game_render;
   screen.ctx = &g_game;
   screen.opaque = 1;
+  /* Set for both modes rather than only for live play: a replay answers -1
+   * and does nothing on a tick, which is stated in one place here instead of
+   * left to whichever mode happened to be constructed last. */
+  screen.wake_in_ms = game_wake_in_ms;
+  screen.tick = game_tick;
   return &screen;
 }
 

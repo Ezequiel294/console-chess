@@ -20,7 +20,16 @@ typedef enum {
    * returns either: the app layer constructs an Outcome_t with one of these
    * directly when a player resigns or a draw is agreed. */
   OUTCOME_RESIGNATION,
-  OUTCOME_DRAW_AGREEMENT
+  OUTCOME_DRAW_AGREEMENT,
+  /* Forced by the clock rather than by the position. outcome() never returns
+   * either — it is handed a Position and nothing else, and a position that
+   * ran out of time is, on the board alone, merely unfinished — so the app
+   * layer constructs these directly when a side's clock reaches zero, the
+   * same way it does the two above. OUTCOME_TIMEOUT names the opponent as
+   * the winner; the draw variant is the case where that opponent holds no
+   * material that could ever mate (see outcome_can_mate). */
+  OUTCOME_TIMEOUT,
+  OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL
 } Outcome_reason_t;
 
 typedef struct {
@@ -43,5 +52,16 @@ Outcome_t outcome(const Position *pos, const uint64_t *hash_history, int hash_hi
 /* Whether reason is a termination the players chose — resignation or an
  * agreed draw — rather than one the rules forced. */
 int outcome_is_player_chosen(Outcome_reason_t reason);
+
+/* Whether side holds material with which checkmate could be delivered at
+ * all: false for a lone king, a king and a single bishop, and a king and a
+ * single knight; true for everything else, two knights included, since a
+ * helpmate exists there even though mate cannot be forced.
+ *
+ * Deliberately not the insufficient-material draw above, which asks about
+ * both sides at once and would answer "no draw" for a lone king facing a
+ * queen. This asks about one side, which is the question a flag fall poses:
+ * did the player who still has time hold anything to win with? */
+int outcome_can_mate(const Position *pos, Color side);
 
 #endif /* OUTCOME_H */

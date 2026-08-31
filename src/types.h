@@ -80,6 +80,29 @@ typedef struct {
   int prev_halfmove_clock;
 } Move;
 
+/* A chess clock: the time control the game is played under, what each side
+ * has left, and which side is currently running.
+ *
+ * Here rather than in core/chessclock.h because GameState carries one and
+ * types.h is the only header another header may include — the same reason
+ * Position and Move live here. Every operation on it is in
+ * core/chessclock.h, which is where the reasoning about it belongs; nothing
+ * outside that file writes these fields.
+ *
+ * initial_ms == 0 is an untimed game, and is the only representation of one.
+ */
+typedef struct {
+  int32_t initial_ms;   /* what each side starts with; 0 means untimed */
+  int32_t increment_ms; /* added to a side's clock when it completes a turn */
+  /* What each side has left as of started_at_ms, indexed by Color. The
+   * running side's live reading is this less the interval since; see
+   * clock_remaining, which computes rather than accumulates. */
+  int32_t remaining_ms[2];
+  Color running;          /* the side being charged, or NONE */
+  Color held;             /* the side clock_hold stopped, or NONE */
+  uint64_t started_at_ms; /* when the running side's interval began */
+} Chess_clock_t;
+
 // Linked list to store the player's captures
 typedef struct Captures_node_s {
   Piece_t piece;
@@ -94,6 +117,15 @@ typedef struct History_node_s {
   char prev_pos[3];
   char next_pos[3];
   Move move;
+  /* What each side had left after this move, indexed by Color — the mover's
+   * own increment included, since the reading is taken at the clock press,
+   * after the increment is applied. That is what a real clock shows, and it
+   * is what a replay displays for the position this move reached: the
+   * reading travels on the node the replay is already moving between the
+   * history and redo lists, so it follows the step by construction rather
+   * than through a parallel array to keep in sync. Both zero in an untimed
+   * game, where nothing reads them. */
+  int32_t remaining_ms[2];
   struct History_node_s *p_next;
 } History_node_t;
 
@@ -148,6 +180,11 @@ typedef struct {
    * result_reason's values mean. */
   int result_reason;
   Color result_winner;
+
+  /* The game's clock: its time control, both remaining times, and which side
+   * is running. An untimed game leaves this zeroed, which is exactly what
+   * clock_init(&clock, 0, 0) produces — see core/chessclock.h. */
+  Chess_clock_t clock;
 } GameState;
 
 #endif /* TYPES_H */

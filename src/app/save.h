@@ -84,6 +84,11 @@ typedef struct {
   time_t mtime;
   int move_count;
   int readable;
+  /* The time control this game was played under, so a game can be chosen
+   * from the list without opening it. Untimed for an untimed game and for
+   * one that could not be read; see clock_is_timed and
+   * clock_format_control in core/chessclock.h. */
+  Chess_clock_t clock;
 } Saved_game_entry_t;
 
 /* Lists every saved game in the saved-games directory into out (room for at
@@ -99,11 +104,36 @@ int save_list_games(Saved_game_entry_t *out, int max);
  *   e2e4 e7e5 g1f3 b8c6 f1b5
  *   id 5d54b0
  *   name given
+ *   timecontrol 600000 2000
+ *   clocks 597400,600000 597400,594100 591200,594100 591200,588700 585300,588700
+ *   remaining 583100,588700
+ *
+ * The last three appear only for a timed game, and are milliseconds as whole
+ * integers — text that parses with no locale and no floating point, and that
+ * still reads as a time to a person: 600000 beside timecontrol is ten
+ * minutes. A file recording none of them is an untimed game, which is what
+ * every file written before the format carried a clock is.
+ *
+ *   timecontrol <initial_ms> <increment_ms>  what makes a resumed game the
+ *                                            same game
+ *   clocks <w,b> per move played, in order   what a replay reads to show the
+ *                                            clock as it stood at any point
+ *   remaining <w,b> as of writing            what lets a game saved mid-turn
+ *                                            resume with the time spent
+ *
+ * None of the three is derivable from the other two: a control alone cannot
+ * resume a turn already begun, a live reading alone cannot drive a replay,
+ * and per-move readings alone cannot say what control was played, since a
+ * game may end before any increment is visible. For a finished game the last
+ * clocks pair and remaining agree.
  *
  * Loading replays every move through the legal move generator, so a hand-
- * edited or corrupted file is caught at load rather than trusted. Nothing
- * here depends on struct layout, compiler, or machine byte order — only the
- * text format core/notation.h already defines.
+ * edited or corrupted file is caught at load rather than trusted. The clock
+ * is checked with the rest: one reading per move played, no value negative
+ * or beyond what the control could have produced by that point, and a
+ * control and a live reading present together or not at all. Nothing here
+ * depends on struct layout, compiler, or machine byte order — only the text
+ * format core/notation.h already defines.
  */
 
 /* Why a read did not produce a game. NOT_A_SAVE_FILE covers a malformed
@@ -127,8 +157,9 @@ typedef struct {
 } Save_read_result_t;
 
 /* Writes state's starting position, the moves played since (p_history_head),
- * and its trailer (result if it has ended, id, and whether its name was
- * given) to path. Written to path with a ".tmp" suffix and renamed into
+ * and its trailer (result if it has ended, id, whether its name was given,
+ * and — for a timed game — its time control, its per-move clock readings and
+ * its live one) to path. Written to path with a ".tmp" suffix and renamed into
  * place, so an interruption mid-write cannot corrupt whatever already
  * exists at path. Reports nothing itself: called from inside the alternate
  * screen, so the caller draws the outcome into a frame. Returns 1 on

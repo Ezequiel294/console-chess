@@ -40,7 +40,7 @@ int layout_min_rows(int glyph_width) {
   return TITLE_H + board_block_h() + STATUS_H;
 }
 
-int layout_compute(Rect bounds, int glyph_width, Layout *out) {
+int layout_compute(Rect bounds, int glyph_width, int want_clock, Layout *out) {
   if (bounds.w < layout_min_cols(glyph_width) || bounds.h < layout_min_rows(glyph_width)) {
     return 0;
   }
@@ -62,7 +62,25 @@ int layout_compute(Rect bounds, int glyph_width, Layout *out) {
   int body_y = TITLE_H;
   int body_h = bounds.h - TITLE_H - STATUS_H;
   out->board = rect_sub(bounds, 0, body_y, board_w, board_h < body_h ? board_h : body_h);
-  out->panel = rect_sub(bounds, board_w + 1, body_y, bounds.w - board_w - 1, body_h);
+
+  /* Whatever is left beside the board goes to the panel, less a clock column
+   * at the right edge when one is asked for and there is width for it beyond
+   * the panel's own minimum. The board is what runs out of room first, and it
+   * runs out vertically — the minimum is 68x23 at a two-cell glyph, and
+   * terminal windows are far wider than they are tall — so this is the case
+   * a timed game is overwhelmingly in. When it is not, clock comes back
+   * zero-width and the game screen draws both times inside the panel; a
+   * timed game whose clocks are invisible is the one outcome that must not
+   * be possible. */
+  int beside_w = bounds.w - board_w - 1;
+  int clock_w = 0;
+  if (want_clock && beside_w >= PANEL_MIN_W + 1 + LAYOUT_CLOCK_W) {
+    clock_w = LAYOUT_CLOCK_W;
+  }
+
+  out->panel = rect_sub(bounds, board_w + 1, body_y, beside_w - (clock_w ? clock_w + 1 : 0),
+                        body_h);
+  out->clock = rect_sub(bounds, bounds.w - clock_w, body_y, clock_w, body_h);
 
   return 1;
 }

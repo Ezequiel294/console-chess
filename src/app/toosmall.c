@@ -48,6 +48,6 @@ static Cmd_t toosmall_handle(void *ctx, const Event_t *ev) {
 }
 
 Screen *toosmall_screen(void) {
-  static Screen screen = {NULL, NULL, toosmall_handle, toosmall_render, NULL, 1};
+  static Screen screen = {NULL, NULL, toosmall_handle, toosmall_render, NULL, 1, NULL, NULL};
   return &screen;
 }

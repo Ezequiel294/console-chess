@@ -2,6 +2,7 @@
 
 #include "app/prompt.h"
 #include "app/save.h"
+#include "core/chessclock.h"
 #include "core/history.h"
 #include "ui/render.h"
 
@@ -171,7 +172,13 @@ static void savedgames_render(void *ctx, Rect r) {
     const char *status_str = (e->status == SAVE_STATUS_FINISHED) ? "finished" : "ongoing";
     char line[80 + SAVE_NAME_BUF_LEN];
     if (e->readable) {
-      snprintf(line, sizeof(line), "%-8s  %-24s  %3d moves", status_str, e->name, e->move_count);
+      /* Empty for an untimed game, which is then shown exactly as it was
+       * before saves carried a clock — no placeholder in place of a control
+       * it does not have. */
+      char control[CLOCK_CONTROL_MAX];
+      clock_format_control(&e->clock, control, sizeof(control));
+      snprintf(line, sizeof(line), "%-8s  %-24s  %3d moves  %s", status_str, e->name,
+               e->move_count, control);
     } else {
       snprintf(line, sizeof(line), "%-8s  %-24s  (could not be read)", status_str, e->name);
     }

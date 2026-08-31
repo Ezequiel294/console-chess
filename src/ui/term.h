@@ -45,6 +45,17 @@ Term_size_t term_size(void);
 /* Non-zero once per size change. Reading it clears it. */
 int term_take_resize(void);
 
+/* Milliseconds from an unspecified fixed point, from a source that only ever
+ * moves forward. The one place in the program that asks the operating system
+ * what time it is: core/chessclock.c does every piece of clock arithmetic
+ * against a now_ms it is handed, and this is where that reading comes from.
+ *
+ * Monotonic rather than wall-clock, so an NTP correction or the user
+ * changing the machine's clock cannot add time to a player's clock or take
+ * it away. The origin is arbitrary and comparable only against other
+ * readings from this function. */
+uint64_t term_now_ms(void);
+
 /* How many cells this terminal uses to draw sample, a UTF-8 encoded piece
  * glyph. Must be called after term_init and before term_enter, since it draws
  * on the primary screen. Returns 1 or 2; returns TERM_GLYPH_WIDTH_DEFAULT if

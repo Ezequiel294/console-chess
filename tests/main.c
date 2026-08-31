@@ -24,6 +24,7 @@ int main(int argc, char **argv) {
   test_notation();
   test_save();
   test_replay();
+  test_clock();
 
   printf("%d/%d checks passed\n", g_tests_run - g_tests_failed, g_tests_run);
   return g_tests_failed ? 1 : 0;

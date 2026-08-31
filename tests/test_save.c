@@ -2,6 +2,7 @@
 
 #include "app/save.h"
 #include "core/board.h"
+#include "core/chessclock.h"
 #include "core/history.h"
 #include "core/notation.h"
 #include "core/outcome.h"
@@ -401,6 +402,300 @@ static void test_write_then_read_matches_captures(void) {
   remove(TMP_A);
 }
 
+/* --- The clock in the file ------------------------------------------------
+ *
+ * Ten minutes plus two seconds, four moves played. The per-move readings are
+ * one pair per move, in order, each within what 600000 + 2000 * moves could
+ * have produced by that point. */
+#define TIMED_FIXTURE                                                            \
+  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"                    \
+  "e2e4 e7e5 g1f3 b8c6\n"                                                        \
+  "timecontrol 600000 2000\n"                                                    \
+  "clocks 597400,600000 597400,594100 591200,594100 591200,588700\n"             \
+  "remaining 589050,588700\n"
+
+static void test_timed_round_trip(void) {
+  write_raw(TMP_A, TIMED_FIXTURE);
+  GameState state = {0};
+  TEST_CHECK(save_read(TMP_A, &state).status == SAVE_READ_OK);
+
+  TEST_CHECK(clock_is_timed(&state.clock));
+  TEST_CHECK(state.clock.initial_ms == 600000);
+  TEST_CHECK(state.clock.increment_ms == 2000);
+  TEST_CHECK(state.clock.remaining_ms[WHITE] == 589050);
+  TEST_CHECK(state.clock.remaining_ms[BLACK] == 588700);
+  /* Loaded, not started: nothing runs until the board appears. */
+  TEST_CHECK(clock_running_side(&state.clock) == NONE);
+
+  static const int32_t EXPECT[4][2] = {
+      {597400, 600000}, {597400, 594100}, {591200, 594100}, {591200, 588700}};
+  int n = 0;
+  for (const History_node_t *p = state.p_history_head; p != NULL; p = p->p_next, n++) {
+    TEST_CHECK(p->remaining_ms[WHITE] == EXPECT[n][WHITE]);
+    TEST_CHECK(p->remaining_ms[BLACK] == EXPECT[n][BLACK]);
+  }
+  TEST_CHECK(n == 4);
+
+  /* Written back out and read again: the control, both live readings, and
+   * every per-move pair come back identical. */
+  TEST_CHECK(save_write(TMP_B, &state));
+  GameState again = {0};
+  TEST_CHECK(save_read(TMP_B, &again).status == SAVE_READ_OK);
+  TEST_CHECK(again.clock.initial_ms == state.clock.initial_ms);
+  TEST_CHECK(again.clock.increment_ms == state.clock.increment_ms);
+  TEST_CHECK(again.clock.remaining_ms[WHITE] == state.clock.remaining_ms[WHITE]);
+  TEST_CHECK(again.clock.remaining_ms[BLACK] == state.clock.remaining_ms[BLACK]);
+  const History_node_t *a = state.p_history_head;
+  const History_node_t *b = again.p_history_head;
+  for (; a != NULL && b != NULL; a = a->p_next, b = b->p_next) {
+    TEST_CHECK(a->remaining_ms[WHITE] == b->remaining_ms[WHITE]);
+    TEST_CHECK(a->remaining_ms[BLACK] == b->remaining_ms[BLACK]);
+  }
+  TEST_CHECK(a == NULL && b == NULL);
+
+  free_state(&state);
+  free_state(&again);
+  remove(TMP_A);
+  remove(TMP_B);
+}
+
+/* A game saved partway through a turn: remaining is behind the last per-move
+ * pair by the time the mover has already spent. Loading resumes with that
+ * time spent, not returned. */
+static void test_mid_turn_round_trip(void) {
+  write_raw(TMP_A, TIMED_FIXTURE);
+  GameState state = {0};
+  TEST_CHECK(save_read(TMP_A, &state).status == SAVE_READ_OK);
+
+  const History_node_t *last = state.p_history_head;
+  while (last->p_next != NULL) {
+    last = last->p_next;
+  }
+  /* White is to move and has spent 2150 ms of this turn already. */
+  TEST_CHECK(state.position.side_to_move == WHITE);
+  TEST_CHECK(state.clock.remaining_ms[WHITE] == last->remaining_ms[WHITE] - 2150);
+  TEST_CHECK(state.clock.remaining_ms[BLACK] == last->remaining_ms[BLACK]);
+
+  /* And that is what a resumed game starts running from, rather than the
+   * reading at the start of the turn. */
+  clock_start(&state.clock, WHITE, 50000);
+  TEST_CHECK(clock_remaining(&state.clock, WHITE, 50000) == 589050);
+  TEST_CHECK(clock_remaining(&state.clock, WHITE, 51000) == 588050);
+
+  free_state(&state);
+  remove(TMP_A);
+}
+
+/* A game with no time control is an untimed game — including every file
+ * written before the format carried one. */
+static void test_untimed_saves(void) {
+  write_raw(TMP_A, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "e2e4 e7e5\n"
+                    "id 5d54b0\n"
+                    "name given\n");
+  GameState state = {0};
+  TEST_CHECK(save_read(TMP_A, &state).status == SAVE_READ_OK);
+  TEST_CHECK(!clock_is_timed(&state.clock));
+  TEST_CHECK(state.clock.initial_ms == 0 && state.clock.increment_ms == 0);
+  for (const History_node_t *p = state.p_history_head; p != NULL; p = p->p_next) {
+    TEST_CHECK(p->remaining_ms[WHITE] == 0 && p->remaining_ms[BLACK] == 0);
+  }
+
+  /* And writing it back records none of the three keys. */
+  TEST_CHECK(save_write(TMP_B, &state));
+  FILE *f = fopen(TMP_B, "rb");
+  char text[2048] = {0};
+  fread(text, 1, sizeof(text) - 1, f);
+  fclose(f);
+  TEST_CHECK(strstr(text, "timecontrol") == NULL);
+  TEST_CHECK(strstr(text, "clocks") == NULL);
+  TEST_CHECK(strstr(text, "remaining") == NULL);
+
+  free_state(&state);
+  remove(TMP_A);
+  remove(TMP_B);
+}
+
+static void test_clock_rejections(void) {
+  /* One reading per move played, no more and no fewer. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4 e7e5 g1f3 b8c6\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000 597400,594100 591200,594100\n"
+                  "remaining 589050,588700\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4 e7e5\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000 597400,594100 591200,594100\n"
+                  "remaining 589050,588700\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  /* Moves played and no readings at all is the same mismatch. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4 e7e5\n"
+                  "timecontrol 600000 2000\n"
+                  "remaining 589050,588700\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* A negative time is not a time. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks -1,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,-3\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* More than the control could ever have produced. After one White move
+   * White may hold at most 600000 + 2000; Black, having played none, at most
+   * 600000. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 602001,600000\n"
+                  "remaining 602001,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600001\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000\n"
+                  "remaining 602001,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  /* Exactly at the bound is accepted: one increment for the one move made. */
+  check_ok_fixture("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "e2e4\n"
+                    "timecontrol 600000 2000\n"
+                    "clocks 602000,600000\n"
+                    "remaining 602000,600000\n",
+                    1, NULL);
+
+  /* Half a clock is worse than none: a control with no live reading, and
+   * readings with no control, are both incomplete rather than half-applied. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "clocks 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* Malformed values and duplicated keys, on the same terms as every other
+   * trailer key. */
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000 5\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 2000\n"
+                  "clocks 597400,600000\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+  check_rejected("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                  "e2e4\n"
+                  "timecontrol 600000 two\n"
+                  "clocks 597400,600000\n"
+                  "remaining 597400,600000\n",
+                  SAVE_READ_NOT_A_SAVE_FILE, -1);
+
+  /* A timed game with no moves records no clocks line, and loads. */
+  check_ok_fixture("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n\n"
+                    "timecontrol 600000 0\n"
+                    "remaining 600000,600000\n",
+                    0, NULL);
+}
+
+/* A game lost on time carries its reason through the file, since the moves
+ * alone leave no trace of it. */
+static void test_timeout_result_round_trip(void) {
+  write_raw(TMP_A, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+                    "e2e4 e7e5\n"
+                    "result 0-1 timeout\n"
+                    "timecontrol 60000 0\n"
+                    "clocks 57400,60000 57400,54100\n"
+                    "remaining 0,54100\n");
+  GameState state = {0};
+  TEST_CHECK(save_read(TMP_A, &state).status == SAVE_READ_OK);
+  TEST_CHECK(state.result_reason == OUTCOME_TIMEOUT);
+  TEST_CHECK(state.result_winner == BLACK);
+  TEST_CHECK(state.clock.remaining_ms[WHITE] == 0);
+
+  TEST_CHECK(save_write(TMP_B, &state));
+  GameState again = {0};
+  TEST_CHECK(save_read(TMP_B, &again).status == SAVE_READ_OK);
+  TEST_CHECK(again.result_reason == OUTCOME_TIMEOUT);
+  TEST_CHECK(again.result_winner == BLACK);
+
+  /* And the draw variant, which the moves leave even less trace of. */
+  write_raw(TMP_A, "4k3/8/8/8/8/8/8/4K1N1 w - - 0 1\n"
+                    "g1f3\n"
+                    "result 1/2-1/2 timeout-insufficient-material\n"
+                    "timecontrol 60000 0\n"
+                    "clocks 57400,60000\n"
+                    "remaining 57400,0\n");
+  GameState draw = {0};
+  TEST_CHECK(save_read(TMP_A, &draw).status == SAVE_READ_OK);
+  TEST_CHECK(draw.result_reason == OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL);
+  TEST_CHECK(draw.result_winner == NONE);
+
+  free_state(&state);
+  free_state(&again);
+  free_state(&draw);
+  remove(TMP_A);
+  remove(TMP_B);
+}
+
 void test_save(void) {
   test_round_trips();
   test_rejections();
@@ -410,4 +705,9 @@ void test_save(void) {
   test_numbering();
   test_no_file();
   test_write_then_read_matches_captures();
+  test_timed_round_trip();
+  test_mid_turn_round_trip();
+  test_untimed_saves();
+  test_clock_rejections();
+  test_timeout_result_round_trip();
 }

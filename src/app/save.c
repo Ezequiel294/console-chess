@@ -1,6 +1,7 @@
 #include "app/save.h"
 
 #include "core/board.h"
+#include "core/chessclock.h"
 #include "core/history.h"
 #include "core/movegen.h"
 #include "core/notation.h"
@@ -76,6 +77,10 @@ static const char *reason_to_str(int reason) {
     return "resignation";
   case OUTCOME_DRAW_AGREEMENT:
     return "agreement";
+  case OUTCOME_TIMEOUT:
+    return "timeout";
+  case OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL:
+    return "timeout-insufficient-material";
   case OUTCOME_IN_PROGRESS:
     break;
   }
@@ -94,6 +99,8 @@ static int str_to_reason(const char *s, int *out) {
       {"repetition", OUTCOME_DRAW_REPETITION},
       {"resignation", OUTCOME_RESIGNATION},
       {"agreement", OUTCOME_DRAW_AGREEMENT},
+      {"timeout", OUTCOME_TIMEOUT},
+      {"timeout-insufficient-material", OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL},
   };
   for (size_t i = 0; i < sizeof(TABLE) / sizeof(TABLE[0]); i++) {
     if (strcmp(s, TABLE[i].name) == 0) {
@@ -145,19 +152,67 @@ static int hex6(const char *s) {
   return 1;
 }
 
+/* Parses a whole non-negative integer, and nothing else. A leading sign, a
+ * trailing character, an empty field, or a value beyond what a time can be
+ * are all "not a number" — the trailer is either understood exactly or the
+ * file is not a save file. */
+static int parse_ms(const char *s, size_t len, int32_t *out) {
+  if (len == 0 || len > 10) {
+    return 0;
+  }
+  int64_t value = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (s[i] < '0' || s[i] > '9') {
+      return 0;
+    }
+    value = value * 10 + (s[i] - '0');
+    if (value > INT32_MAX) {
+      return 0;
+    }
+  }
+  *out = (int32_t)value;
+  return 1;
+}
+
+/* One "white,black" pair. */
+static int parse_pair(const char *s, size_t len, int32_t out[2]) {
+  const char *comma = memchr(s, ',', len);
+  if (comma == NULL) {
+    return 0;
+  }
+  size_t left = (size_t)(comma - s);
+  return parse_ms(s, left, &out[WHITE]) && parse_ms(comma + 1, len - left - 1, &out[BLACK]);
+}
+
+/* What the three clock keys carried, before they are checked against the
+ * moves. clocks stays a pointer into the trailer buffer: the number of pairs
+ * is the number of moves, which is not known until the moves are replayed,
+ * and the readings are needed one at a time as that replay goes. */
+typedef struct {
+  int has_timecontrol;
+  int32_t initial_ms;
+  int32_t increment_ms;
+  const char *clocks; /* the raw "w,b w,b ..." value, or NULL if absent */
+  int has_remaining;
+  int32_t remaining_ms[2];
+} Trailer_clock_t;
+
 /* Parses the trailer — the text after the moves line, zero or more "key
- * value..." lines in any order — into the three things it can hold. Returns
+ * value..." lines in any order — into the things it can hold. Returns
  * 1 if every line was understood, 0 on an unknown key, a duplicate key, or a
  * malformed value, in which case the file is not a save file at all (see
  * save.h's SAVE_READ_NOT_A_SAVE_FILE). trailer is mutated (split on '\n'). */
 static int parse_trailer(char *trailer, int *result_reason_out, Color *result_winner_out,
-                          char *id_out, size_t id_out_len, int *name_given_out) {
+                          char *id_out, size_t id_out_len, int *name_given_out,
+                          Trailer_clock_t *clock_out) {
   *result_reason_out = OUTCOME_IN_PROGRESS;
   *result_winner_out = NONE;
   id_out[0] = '\0';
   *name_given_out = 0;
+  memset(clock_out, 0, sizeof(*clock_out));
 
   int result_seen = 0, id_seen = 0, name_seen = 0;
+  int timecontrol_seen = 0, clocks_seen = 0, remaining_seen = 0;
 
   char *p = trailer;
   while (p != NULL && *p != '\0') {
@@ -225,12 +280,98 @@ static int parse_trailer(char *trailer, int *result_reason_out, Color *result_wi
         return 0;
       }
       name_seen = 1;
+    } else if (strcmp(key, "timecontrol") == 0) {
+      if (timecontrol_seen) {
+        return 0;
+      }
+      char *sp2 = strchr(value, ' ');
+      if (sp2 == NULL || strchr(sp2 + 1, ' ') != NULL) {
+        return 0; /* exactly two fields */
+      }
+      *sp2 = '\0';
+      if (!parse_ms(value, strlen(value), &clock_out->initial_ms) ||
+          !parse_ms(sp2 + 1, strlen(sp2 + 1), &clock_out->increment_ms)) {
+        return 0;
+      }
+      clock_out->has_timecontrol = 1;
+      timecontrol_seen = 1;
+    } else if (strcmp(key, "clocks") == 0) {
+      if (clocks_seen) {
+        return 0;
+      }
+      /* Kept as text and checked against the moves in save_read, which is
+       * where the move count and which side made each move are known. */
+      clock_out->clocks = value;
+      clocks_seen = 1;
+    } else if (strcmp(key, "remaining") == 0) {
+      if (remaining_seen || strchr(value, ' ') != NULL) {
+        return 0;
+      }
+      if (!parse_pair(value, strlen(value), clock_out->remaining_ms)) {
+        return 0;
+      }
+      clock_out->has_remaining = 1;
+      remaining_seen = 1;
     } else {
       return 0; /* an unknown key: a half-understood file is worse than a
                  * refused one */
     }
   }
+  /* A clock is recorded whole or not at all: a file with times but no
+   * control cannot say what game they belong to, and one with a control but
+   * no times cannot say where the game stands. Either half alone is an
+   * incomplete save, not one to guess the rest of. */
+  if (clock_out->has_timecontrol != clock_out->has_remaining) {
+    return 0;
+  }
+  if (clocks_seen && !clock_out->has_timecontrol) {
+    return 0;
+  }
   return 1;
+}
+
+/* Steps through the "w,b w,b ..." value one pair at a time. */
+typedef struct {
+  const char *p;
+  int exhausted;
+} Clocks_cursor_t;
+
+static void clocks_cursor_init(Clocks_cursor_t *cur, const char *value) {
+  cur->p = (value != NULL) ? value : "";
+  cur->exhausted = 0;
+}
+
+/* Reads the next pair into out. Returns 1 on a pair, 0 when the value is
+ * used up, and -1 if what is there is not a pair at all. */
+static int clocks_cursor_next(Clocks_cursor_t *cur, int32_t out[2]) {
+  while (*cur->p == ' ') {
+    cur->p++;
+  }
+  if (*cur->p == '\0') {
+    cur->exhausted = 1;
+    return 0;
+  }
+  const char *start = cur->p;
+  while (*cur->p != '\0' && *cur->p != ' ') {
+    cur->p++;
+  }
+  if (!parse_pair(start, (size_t)(cur->p - start), out)) {
+    return -1;
+  }
+  return 1;
+}
+
+/* The most a side could have: everything it started with, plus one increment
+ * for each turn it has completed. A hand-edited file claiming more than that
+ * is refused. It cannot be made airtight without recording every move's
+ * duration, and the format is explicitly hand-editable, so this is a sanity
+ * bound rather than a guarantee. */
+static int within_bound(int32_t ms, const Trailer_clock_t *tc, int moves_by_side) {
+  if (ms < 0) {
+    return 0;
+  }
+  int64_t bound = (int64_t)tc->initial_ms + (int64_t)tc->increment_ms * moves_by_side;
+  return (int64_t)ms <= bound;
 }
 
 int save_write(const char *path, const GameState *state) {
@@ -290,6 +431,48 @@ int save_write(const char *path, const GameState *state) {
     fclose(file);
     remove(tmp_path);
     return 0;
+  }
+
+  /* A timed game records three things about its clock, and an untimed game
+   * records none of them — which is what makes every file written before
+   * this format carried a clock load as exactly the untimed game it is.
+   *
+   * timecontrol is what makes a resumed game the same game; clocks is what
+   * lets a replay show the clock as it stood at any point; remaining is what
+   * lets a game saved mid-turn resume with the mover's time already partly
+   * spent. None of the three can be derived from the other two. */
+  if (clock_is_timed(&state->clock)) {
+    if (fprintf(file, "timecontrol %d %d\n", state->clock.initial_ms,
+                state->clock.increment_ms) < 0) {
+      fclose(file);
+      remove(tmp_path);
+      return 0;
+    }
+    if (state->p_history_head != NULL) {
+      if (fprintf(file, "clocks") < 0) {
+        fclose(file);
+        remove(tmp_path);
+        return 0;
+      }
+      for (const History_node_t *p = state->p_history_head; p != NULL; p = p->p_next) {
+        if (fprintf(file, " %d,%d", p->remaining_ms[WHITE], p->remaining_ms[BLACK]) < 0) {
+          fclose(file);
+          remove(tmp_path);
+          return 0;
+        }
+      }
+      if (fprintf(file, "\n") < 0) {
+        fclose(file);
+        remove(tmp_path);
+        return 0;
+      }
+    }
+    if (fprintf(file, "remaining %d,%d\n", state->clock.remaining_ms[WHITE],
+                state->clock.remaining_ms[BLACK]) < 0) {
+      fclose(file);
+      remove(tmp_path);
+      return 0;
+    }
   }
 
   if (ferror(file) || fclose(file) != 0) {
@@ -361,10 +544,19 @@ Save_read_result_t save_read(const char *path, GameState *out) {
   Color result_winner;
   char id[SAVE_ID_LEN];
   int name_given;
-  if (!parse_trailer(trailer, &result_reason, &result_winner, id, sizeof(id), &name_given)) {
+  Trailer_clock_t tc;
+  if (!parse_trailer(trailer, &result_reason, &result_winner, id, sizeof(id), &name_given,
+                      &tc)) {
     free(buf);
     return fail_not_save;
   }
+
+  /* The per-move readings are checked against the moves as those moves are
+   * replayed below, which is where the move count and which side made each
+   * one are known. */
+  Clocks_cursor_t clocks;
+  clocks_cursor_init(&clocks, tc.clocks);
+  int moves_by[2] = {0, 0};
 
   GameState loaded = {0};
   if (!fen_parse(fen_line, &loaded.start_position)) {
@@ -403,6 +595,26 @@ Save_read_result_t save_read(const char *path, GameState *out) {
       return fail_not_save;
     }
 
+    /* One reading per move played, in order, each within what the time
+     * control could have produced by that point. An untimed save has none
+     * and leaves both zero, which is what an untimed game's history nodes
+     * carry. */
+    int32_t node_remaining[2] = {0, 0};
+    if (tc.has_timecontrol) {
+      Color mover_here = loaded.position.side_to_move;
+      int step = clocks_cursor_next(&clocks, node_remaining);
+      moves_by[mover_here]++;
+      if (step != 1 || !within_bound(node_remaining[WHITE], &tc, moves_by[WHITE]) ||
+          !within_bound(node_remaining[BLACK], &tc, moves_by[BLACK])) {
+        free(buf);
+        free_captures(loaded.p_captures_white_head);
+        free_captures(loaded.p_captures_black_head);
+        free_history(loaded.p_history_head);
+        free_hash_history(loaded.p_hash_history_head);
+        return fail_not_save;
+      }
+    }
+
     Move move;
     if (!coord_to_move(&loaded.position, tok, &move)) {
       free(buf);
@@ -427,8 +639,27 @@ Save_read_result_t save_read(const char *path, GameState *out) {
     }
 
     make(&loaded.position, move);
-    update_history(&loaded.p_history_head, from, to, move);
+    update_history(&loaded.p_history_head, from, to, move, node_remaining);
     push_hash(&loaded.p_hash_history_head, loaded.position.hash);
+  }
+
+  if (tc.has_timecontrol) {
+    /* More readings than moves is as wrong as fewer: the file describes a
+     * game this is not. */
+    int32_t surplus[2];
+    if (clocks_cursor_next(&clocks, surplus) != 0 ||
+        !within_bound(tc.remaining_ms[WHITE], &tc, moves_by[WHITE]) ||
+        !within_bound(tc.remaining_ms[BLACK], &tc, moves_by[BLACK])) {
+      free(buf);
+      free_captures(loaded.p_captures_white_head);
+      free_captures(loaded.p_captures_black_head);
+      free_history(loaded.p_history_head);
+      free_hash_history(loaded.p_hash_history_head);
+      return fail_not_save;
+    }
+    clock_init(&loaded.clock, tc.initial_ms, tc.increment_ms);
+    loaded.clock.remaining_ms[WHITE] = tc.remaining_ms[WHITE];
+    loaded.clock.remaining_ms[BLACK] = tc.remaining_ms[BLACK];
   }
 
   free(buf);
@@ -725,6 +956,7 @@ int save_list_games(Saved_game_entry_t *out, int max) {
     Save_read_result_t r = save_read(e->path, &scratch);
     if (r.status == SAVE_READ_OK) {
       e->readable = 1;
+      e->clock = scratch.clock;
       e->move_count = 0;
       for (const History_node_t *p = scratch.p_history_head; p != NULL; p = p->p_next) {
         e->move_count++;
@@ -736,6 +968,7 @@ int save_list_games(Saved_game_entry_t *out, int max) {
     } else {
       e->readable = 0;
       e->move_count = 0;
+      memset(&e->clock, 0, sizeof(e->clock));
     }
 
     count++;

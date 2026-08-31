@@ -10,6 +10,8 @@ Gives the game somewhere to put everything that is not the board — a menu to s
 
 The system SHALL open on a main menu offering: a new game, loading a saved game, how to play, settings, and quitting.
 
+Choosing a new game SHALL open the new-game setup screen rather than a board — a game now has settings, and there is one screen that asks for them (see new-game-setup).
+
 There is deliberately no "resume last game": see game-persistence's Status note — an automatic resume risked silently reopening a *finished* game as if it were still in progress. Every saved game, including one closed mid-play, is reached the same way: Load Game.
 
 #### Scenario: Launching
@@ -19,6 +21,10 @@ There is deliberately no "resume last game": see game-persistence's Status note 
 #### Scenario: Returning to the menu
 - **WHEN** the player leaves a game without quitting the program
 - **THEN** the main menu is shown again
+
+#### Scenario: Starting a new game
+- **WHEN** the player chooses New Game
+- **THEN** the setup screen is shown, and a board appears only once the settings are confirmed
 
 ### Requirement: Menu navigation is consistent
 
@@ -110,6 +116,8 @@ Undo and redo are likewise not live-play commands: chess does not allow taking b
 
 The system SHALL display the currently available commands on screen during play, and SHALL show whose turn it is and the state of the game.
 
+The state of the game SHALL be able to change with no input at all: in a timed game a clock running out ends the game while the player is looking at it, and the screen SHALL say so at that moment rather than at the next keystroke.
+
 #### Scenario: Commands shown
 - **WHEN** the board is displayed
 - **THEN** the available command keys and their meanings are visible
@@ -125,6 +133,10 @@ The system SHALL display the currently available commands on screen during play,
 #### Scenario: Unavailable command
 - **WHEN** a command cannot currently be used
 - **THEN** it is shown as unavailable rather than silently doing nothing
+
+#### Scenario: The game ends without a keystroke
+- **WHEN** a clock reaches zero while nobody is pressing anything
+- **THEN** the screen states that the game is over and stops offering a move, without waiting for input
 
 ### Requirement: Help
 
@@ -158,7 +170,11 @@ There is deliberately no setting for the turn handover: it always happens, the s
 
 ### Requirement: Turn handover
 
-After every completed move, the system SHALL wait for the incoming player to indicate they are ready before the board flips, rather than changing after a fixed delay. This handover is unconditional — there is no setting to skip it — since the same "I'm ready" gesture is intended to double as the cue a future timed mode needs to start the incoming player's clock.
+After every completed move, the system SHALL wait for the incoming player to indicate they are ready before the board flips, rather than changing after a fixed delay. This handover is unconditional — there is no setting to skip it, timed or untimed — because it is two things at once: the moment a player gets to look at the move that was just made, and the press of the clock (see chess-clock's The handover is the clock press).
+
+In a timed game the handover SHALL be the only thing that stops the mover's clock and starts the opponent's. In an untimed game it SHALL do exactly what it does today.
+
+A move that ends the game SHALL NOT ask for a handover.
 
 #### Scenario: Handover
 - **WHEN** a move completes
@@ -167,11 +183,21 @@ After every completed move, the system SHALL wait for the incoming player to ind
 
 #### Scenario: No timed wait
 - **WHEN** a player takes any amount of time between turns
-- **THEN** nothing changes on screen until they act
+- **THEN** nothing changes on screen until they act, except a running clock counting down
+
+#### Scenario: The handover is the clock press
+- **WHEN** a move completes in a timed game and the incoming player signals readiness
+- **THEN** the mover's clock stops and takes its increment, and the incoming player's clock starts
+
+#### Scenario: Handover after a game-ending move
+- **WHEN** a move ends the game
+- **THEN** no handover is asked for and the result is reached directly
 
 ### Requirement: Game result
 
 When a game ends, the system SHALL display the result, the reason, and the final position, and SHALL offer saving the finished game, a new game, reviewing the move history, and returning to the main menu.
+
+Choosing a new game from here SHALL open the setup screen, the same one the main menu opens, so that the settings of the next game are chosen rather than inherited.
 
 Saving is offered here because this is the only screen a finished game is ever seen from, and leaving it without saving discards the game for good. It is offered rather than performed: keeping a game is the player's decision, the same as it is during play (see game-persistence's Saving is explicit).
 
@@ -206,6 +232,10 @@ Saving is offered here because this is the only screen a finished game is ever s
 #### Scenario: No further moves
 - **WHEN** a game has ended
 - **THEN** no move can be made in it
+
+#### Scenario: A new game from the result
+- **WHEN** the player chooses a new game from the result screen
+- **THEN** the setup screen is shown, with its settings to choose again, rather than a board
 
 ### Requirement: Quitting offers to save
 

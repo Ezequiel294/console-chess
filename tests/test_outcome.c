@@ -94,6 +94,68 @@ static void test_repetition(void) {
   TEST_CHECK(outcome(&pos, other, 2).reason == OUTCOME_IN_PROGRESS);
 }
 
+/* outcome_can_mate asks about one side; the insufficient-material draw asks
+ * about both at once. The two disagree wherever one side holds enough and
+ * the other does not, which is precisely the case a flag fall has to
+ * resolve. */
+static void test_can_mate(void) {
+  Position pos;
+
+  /* A bare king cannot mate. */
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1", &pos));
+  TEST_CHECK(!outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(!outcome_can_mate(&pos, BLACK));
+
+  /* King and a single bishop, or a single knight: no mate exists. */
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1", &pos));
+  TEST_CHECK(!outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(!outcome_can_mate(&pos, BLACK));
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/2N1K3 w - - 0 1", &pos));
+  TEST_CHECK(!outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(fen_parse("2n1k3/8/8/8/8/8/8/4K3 w - - 0 1", &pos));
+  TEST_CHECK(!outcome_can_mate(&pos, BLACK));
+  TEST_CHECK(!outcome_can_mate(&pos, WHITE));
+
+  /* Two knights: mate cannot be forced, but a helpmate exists, so this side
+   * can mate. Two bishops and bishop-plus-knight likewise. */
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/1NN1K3 w - - 0 1", &pos));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(!outcome_can_mate(&pos, BLACK));
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/1BB1K3 w - - 0 1", &pos));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/1BN1K3 w - - 0 1", &pos));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+
+  /* Any major piece or a pawn. */
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/3QK3 w - - 0 1", &pos));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/3RK3 w - - 0 1", &pos));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/4P3/8/4K3 w - - 0 1", &pos));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+
+  /* The asymmetric case: a lone king against a queen. Neither side is
+   * stalemated and this is no insufficient-material draw, yet one side
+   * could never mate and the other plainly could — the distinction
+   * outcome_can_mate exists to draw. */
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/3QK3 b - - 0 1", &pos));
+  TEST_CHECK(!outcome_can_mate(&pos, BLACK));
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(outcome(&pos, NULL, 0).reason != OUTCOME_DRAW_INSUFFICIENT_MATERIAL);
+
+  /* And where the two agree: king against king and knight draws outright,
+   * and neither side can mate. */
+  TEST_CHECK(fen_parse("4k3/8/8/8/8/8/8/2N1K3 b - - 0 1", &pos));
+  TEST_CHECK(outcome(&pos, NULL, 0).reason == OUTCOME_DRAW_INSUFFICIENT_MATERIAL);
+  TEST_CHECK(!outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(!outcome_can_mate(&pos, BLACK));
+
+  /* The starting position: both sides can mate. */
+  position_init(&pos);
+  TEST_CHECK(outcome_can_mate(&pos, WHITE));
+  TEST_CHECK(outcome_can_mate(&pos, BLACK));
+}
+
 void test_outcome(void) {
   test_checkmate();
   test_check_with_escape();
@@ -101,4 +163,5 @@ void test_outcome(void) {
   test_fifty_move();
   test_insufficient_material();
   test_repetition();
+  test_can_mate();
 }

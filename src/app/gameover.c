@@ -3,6 +3,7 @@
 #include "app/game.h"
 #include "app/history_view.h"
 #include "app/mainmenu.h"
+#include "app/newgame.h"
 #include "app/prompt.h"
 #include "app/save.h"
 #include "app/settings.h"
@@ -69,6 +70,12 @@ static const char *result_text(Outcome_t oc, char *buf, size_t n) {
     break;
   case OUTCOME_DRAW_AGREEMENT:
     snprintf(buf, n, "Draw — by agreement");
+    break;
+  case OUTCOME_TIMEOUT:
+    snprintf(buf, n, "%s wins — on time", who);
+    break;
+  case OUTCOME_DRAW_TIMEOUT_INSUFFICIENT_MATERIAL:
+    snprintf(buf, n, "Draw — out of time, with insufficient material to mate");
     break;
   case OUTCOME_IN_PROGRESS:
     snprintf(buf, n, "");
@@ -267,17 +274,28 @@ static void reset_for_new_game(GameState *s) {
   push_hash(&s->p_hash_history_head, s->position.hash);
 }
 
+/* CMD_RESET, not CMD_REPLACE: a game reached via Load Game has the
+ * saved-games list buried beneath it on the stack, and a fresh game should
+ * not carry that along — nor the result screen, nor the setup screen it was
+ * started from. It becomes the whole stack, the same as starting one from
+ * the main menu. */
+static Cmd_t on_new_game(void *ctx, Chess_clock_t clock) {
+  GameOver_t *g = (GameOver_t *)ctx;
+  reset_for_new_game(g->state);
+  g->state->clock = clock;
+  return (Cmd_t){CMD_RESET, game_screen(g->state)};
+}
+
 static Cmd_t activate(GameOver_t *g, int k) {
   switch (k) {
   case 0:
     return save_finished_game(g);
   case 1:
-    /* CMD_RESET, not CMD_REPLACE: a game reached via Load Game has the
-     * saved-games list buried beneath it on the stack, and a fresh game
-     * should not carry that along — it becomes the whole stack, the same as
-     * starting one from the main menu. */
-    reset_for_new_game(g->state);
-    return (Cmd_t){CMD_RESET, game_screen(g->state)};
+    /* The same setup screen the main menu opens, so the next game's settings
+     * are chosen rather than inherited. Pushed rather than replacing this
+     * screen: backing out of it returns here with the finished game still
+     * shown and nothing about it ended or discarded. */
+    return (Cmd_t){CMD_PUSH, newgame_screen(on_new_game, g)};
   case 2:
     return (Cmd_t){CMD_PUSH, history_view_screen(g->state, 0)};
   case 3:

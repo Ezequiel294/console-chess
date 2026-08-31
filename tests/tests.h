@@ -14,5 +14,6 @@ void test_outcome(void);
 void test_notation(void);
 void test_save(void);
 void test_replay(void);
+void test_clock(void);
 
 #endif /* TESTS_H */
