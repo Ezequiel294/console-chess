@@ -23,7 +23,11 @@ typedef enum {
   EV_MOUSE,
   EV_RESIZE,
   EV_PASTE,
-  EV_EOF
+  EV_EOF,
+  /* A bounded wait ran out with nothing to report. Its own type, and not a
+   * key with a special name, so "time passed" and "the user did something"
+   * cannot be confused for one another anywhere downstream. */
+  EV_TIMEOUT
 } Event_type_t;
 
 typedef enum {
@@ -95,6 +99,19 @@ typedef struct {
  * End of input is EV_EOF, which the caller is expected to treat as a request to
  * quit. This is also what makes the game scriptable. */
 Event_t input_next(void);
+
+/* The same, with a deadline: timeout_ms milliseconds, or negative to wait as
+ * long as it takes (input_next() is exactly input_next_within(-1)). Returns
+ * EV_TIMEOUT if the deadline passes with no event to report.
+ *
+ * The deadline is a budget over the whole decode, not a per-read wait, so an
+ * expiry is delivered at its deadline whether or not an unrelated partial
+ * sequence happens to be sitting in the buffer. That buffer is left exactly
+ * as it is when the deadline passes, so an escape sequence, a multi-byte
+ * character or a paste that has begun resumes on the next call rather than
+ * being truncated, dropped, or emitted in pieces — the same guarantee a
+ * resize already carries. */
+Event_t input_next_within(int timeout_ms);
 
 /* Releases the paste buffer. */
 void input_shutdown(void);

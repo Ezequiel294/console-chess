@@ -518,8 +518,23 @@ static int pending_timeout(void) {
   return -1; /* a partial character; the rest is already on its way */
 }
 
-Event_t input_next(void) {
+static Event_t timeout_event(void) {
   Event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.type = EV_TIMEOUT;
+  return ev;
+}
+
+Event_t input_next(void) { return input_next_within(-1); }
+
+Event_t input_next_within(int timeout_ms) {
+  Event_t ev;
+
+  /* The deadline is fixed once, here, rather than being restarted on each
+   * pass round the loop: a caller asking for 100 ms must get its expiry
+   * 100 ms from now, however many partial reads happen in between. */
+  int bounded = timeout_ms >= 0;
+  uint64_t deadline = bounded ? term_now_ms() + (uint64_t)timeout_ms : 0;
 
   for (;;) {
     if (term_take_resize()) {
@@ -543,7 +558,26 @@ Event_t input_next(void) {
       continue;
     }
 
-    int timeout = pending_timeout();
+    /* What the sequence in progress is waiting for, and what the caller's
+     * deadline leaves — the wait is the smaller of the two. Cutting the wait
+     * short for the deadline is not the same event as the sequence's own
+     * wait running out, so the two are told apart below: only the sequence's
+     * own timeout may discard what has been read. */
+    int pending = pending_timeout();
+    int timeout = pending;
+    int budget_limited = 0;
+    if (bounded) {
+      uint64_t now = term_now_ms();
+      if (now >= deadline) {
+        return timeout_event(); /* g_buf untouched: the sequence resumes later */
+      }
+      int budget = (int)(deadline - now);
+      if (pending < 0 || budget < pending) {
+        timeout = budget;
+        budget_limited = 1;
+      }
+    }
+
     long n = term_read(g_buf + g_len, sizeof(g_buf) - g_len, timeout);
 
     if (n == TERM_READ_INTR) {
@@ -557,6 +591,11 @@ Event_t input_next(void) {
       return ev;
     }
     if (n == 0) {
+      if (budget_limited) {
+        /* The caller's deadline, not the sequence's. Everything read so far
+         * stays exactly where it is. */
+        return timeout_event();
+      }
       /* Nothing arrived within the wait. */
       if (g_in_paste) {
         g_in_paste = 0;
