@@ -2,6 +2,7 @@
 
 #include "app/game.h"
 #include "app/help.h"
+#include "app/newgame.h"
 #include "app/save.h"
 #include "app/savedgames.h"
 #include "app/settings.h"
@@ -66,11 +67,21 @@ static Cmd_t on_game_loaded(void *ctx, GameState loaded) {
   return (Cmd_t){CMD_PUSH, screen};
 }
 
+/* A game now has settings, so New Game opens the screen that asks for them
+ * rather than a board. CMD_REPLACE, not CMD_PUSH: the setup screen has done
+ * its job once the game begins, and the board sits where it did before —
+ * directly on the main menu. */
+static Cmd_t on_new_game(void *ctx, Chess_clock_t clock) {
+  MainMenu_t *m = (MainMenu_t *)ctx;
+  start_fresh_game(m);
+  m->state->clock = clock;
+  return (Cmd_t){CMD_REPLACE, game_screen(m->state)};
+}
+
 static Cmd_t activate(MainMenu_t *m, int k) {
   switch (k) {
   case 0:
-    start_fresh_game(m);
-    return (Cmd_t){CMD_PUSH, game_screen(m->state)};
+    return (Cmd_t){CMD_PUSH, newgame_screen(on_new_game, m)};
   case 1:
     return (Cmd_t){CMD_PUSH, savedgames_screen(on_game_loaded, m)};
   case 2:
