@@ -9,21 +9,22 @@
 
 static const char *LINES[] = {
     "Moving a piece",
-    " Click a piece, then its destination — or type the square,",
-    " e.g. e2 then e4, pressing Enter after each — or press an",
-    " arrow key to bring up the board cursor, move it with the",
-    " arrows, and press Enter on the square you want.",
+    " Click a piece then its destination, or type the squares",
+    " (e2 then e4, Enter after each), or press an arrow key for",
+    " the board cursor and Enter on the square you want.",
     "",
     "Commands",
     " s  save          H  move history  x  resign",
     " o  offer draw    ?  this help     q  quit",
+    " r  rename a save (on the Load Game screen)",
+    "",
+    "The clock",
+    " SPACE is the clock press: your time runs until you press",
+    " it, no overlay stops it, and running out ends the game.",
     "",
     "Mouse",
     " Click selects a piece or names its destination. The wheel",
     " scrolls the history screen and does nothing on the board.",
-    "",
-    "Load Game screen",
-    " r  rename the selected save",
 };
 #define LINE_COUNT (int)(sizeof(LINES) / sizeof(LINES[0]))
 

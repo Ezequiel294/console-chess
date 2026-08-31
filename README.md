@@ -62,7 +62,9 @@ touches no terminal and no files, which is what lets it be tested without one.
 ## How to Play
 
 The program opens on a main menu: New Game, Load Game, How to Play, Settings,
-Quit. Every screen that offers a choice works the same way, with no
+Quit. New Game opens a setup screen rather than a board — a game has settings
+now, so there is one screen that asks for them (see **Setting up a game**
+below) and the board appears once you confirm them. Every screen that offers a choice works the same way, with no
 exceptions — this one, the result screen, Settings, the saved-game list, and
 the in-game overlays alike (confirming a resignation, the answer to a draw
 offer, what a pawn promotes to, what to do about an unsaved game when you
@@ -89,11 +91,13 @@ list for as long as the overlay is up.
   Clicking a piece, typing a square, and moving the cursor all produce the same selection — whichever you used last is the one that counts, and none of them is required. Selecting is separate from moving: clicking or naming a square holding one of your own pieces only selects it, and a second click or square either completes the move, changes the selection to a different piece of yours, or — if it names an illegal square — is rejected and the selection stays. Escape, or naming the selected square again, cancels the selection.
 
   The cursor is only there while you are using it. Each turn starts with nothing selected and nothing highlighted; the cursor marks the square it is on and that square's rank and file labels, and goes away once the move is played or the selection is cancelled. All three ways of naming a square move it, so a highlighted rank and file always tell you which square is in hand — including the one you just clicked.
-- **Turn order**: White plays first, then Black. Between turns the board flips and the status bar waits for the next player to press Space before it does, so a move stays on screen until someone is looking at it — this is the only way the board ever changes orientation — there is no manual flip, since seeing the position from the other side is not something either player is entitled to mid-game — and it always happens; there is no setting to skip it, since the same gesture is meant to double as the "I'm ready" signal a future timed mode will need.
+- **Turn order**: White plays first, then Black. Between turns the board flips and the status bar waits for the next player to press Space before it does, so a move stays on screen until someone is looking at it — this is the only way the board ever changes orientation — there is no manual flip, since seeing the position from the other side is not something either player is entitled to mid-game — and it always happens; there is no setting to skip it. In a timed game that same gesture is the clock press (see **The clock** below); in an untimed game it does exactly what it always has.
+- **Setting up a game**: New Game opens a screen with a `Time` row, an `Increment` row and a `Start game` action. Up and down move between rows, left and right change the highlighted row's value, and Enter starts the game — moving between rows never changes a setting, and changing one never starts the game. Time offers `Untimed, 1, 3, 5, 10, 15, 30, 60 min` and `Custom…`, and defaults to 10 minutes; increment offers `0, 1, 2, 3, 5, 10, 30 s` and `Custom…`, and defaults to none, so pressing Enter straight away starts a 10+0 game. `Custom…` asks you to type a whole number of minutes or seconds and refuses anything that is not one, leaving the settings as they were. Choosing `Untimed` dims the increment row rather than removing it. The same screen opens from the result screen's New Game, so the next game's settings are chosen rather than inherited; backing out of it with `Esc` starts nothing and ends nothing.
+- **The clock**: a timed game shows both clocks as two boxes to the right of the panel, spanning the board's height — White light with dark digits, Black dark with light digits, each named, so which is which never depends on where it is. The lower box always belongs to the side the board is facing, and the two turn with it. The side to move is running from the moment the board appears; time counts down in real time whether or not anyone touches the keyboard, and opening the help, the move list, the promotion picker, a confirmation or the save prompt does not stop it — the only thing that does is the terminal being too small to draw the game at all, which charges neither side for the gap. The clock reads `m:ss`, tenths under ten seconds and hours over an hour, always rounded down, so `0:01` really does have a second behind it. Running out of time ends the game there and then, without a keystroke: a loss on time, or a draw if the opponent has nothing left that could ever mate. An untimed game shows no clocks at all and looks exactly as it always did.
 - **Resigning and draws**: `x` resigns the side whose turn it is, after a confirmation naming who that hands the win to; there is no separate "which side" question, since the handover has already established whose turn it is. `o` offers a draw and opens the other side's answer in the same step — the question names who offered and who is answering, since in pass-and-play both of you are using one keyboard. Playing a move instead of answering counts as a decline.
 - **Move history**: `H` (shift) opens the full move list in standard algebraic notation, numbered and paired by turn, scrollable with the arrow keys, page keys, Home/End, or the mouse wheel. It is reachable during play and from the result screen, and never changes the position. There is no undo or redo during play — chess does not allow taking back a move you have already made — but the move list is kept in enough detail that a future "replay a finished game" mode can step back and forward through it.
 - **Highlights**: while a piece is selected, every square it may legally move to is marked — a small centred dot on an empty square, a tinted background where it would capture (including en passant). The selected square keeps a tint, and the two squares of the move just played keep another. A king in check gets a tinted square plus a small `!` in the corner — which stays visible on the result screen too, showing exactly which king was mated, not just that the game ended. None of this changes what is legal — it is exactly what `generate_legal_moves` already decided, drawn. On a terminal without colour (or with `NO_COLOR` set), every one of these falls back to a distinct shape in the corner of the square instead of a tint, so nothing depends on colour to be readable. The tints themselves are one of the colour schemes in Settings.
-- **Winning**: the game ends in checkmate, stalemate, a draw by the fifty-move rule, insufficient material, or threefold repetition, or by resignation or an agreed draw — whichever comes first. The result screen shows the outcome, the reason, and the final position exactly as it was left (same orientation, king in check still marked if the game ended in mate), and offers a new game, reviewing the history, or returning to the menu.
+- **Winning**: the game ends in checkmate, stalemate, a draw by the fifty-move rule, insufficient material, or threefold repetition, by resignation or an agreed draw, or — in a timed game — by a clock reaching zero, which is a loss on time unless the opponent could never have mated with what they hold, in which case it is a draw. Whichever comes first. The result screen shows the outcome, the reason, and the final position exactly as it was left (same orientation, king in check still marked if the game ended in mate), and offers a new game, reviewing the history, or returning to the menu.
 
 ### Key bindings
 
@@ -107,7 +111,7 @@ In-game commands are always shown in the status bar, dimmed when they currently 
 | `Enter`           | Submit the typed square, or the board cursor if nothing is typed |
 | `Backspace`       | Delete the last character typed, or release the selected piece   |
 | `Esc`             | Clear the move field and the selection                           |
-| `Space`           | Take the handoff and start your turn                             |
+| `Space`           | Take the handoff and start your turn — the clock press in a timed game |
 | `s`               | Save the game (only once a move has been played)                 |
 | `H`               | Open the move history                                            |
 | `x`               | Resign — the side to move, after confirming                      |
@@ -154,21 +158,52 @@ what you load back is always exactly the in-progress game you asked for.
   rather than creating another one, so a game you keep saving as you play
   stays a single file; a game you load and continue saving does too.
 - **Loading**: the main menu's Load Game is a scrollable list of every saved
-  game, showing when each was saved, how many moves it has, and whose turn it
-  is. Choosing one (arrow keys + Enter, or a click to highlight it first)
-  loads it and continues play from exactly that position.
+  game, showing when each was saved, how many moves it has, whose turn it
+  is, and — for a timed game — the time control it was played under (`10+0`,
+  `3+2`); an untimed game shows nothing in its place. Choosing one (arrow
+  keys + Enter, or a click to highlight it first) loads it and continues play
+  from exactly that position, both clocks included, mid-turn and all.
 - **Quitting**: `q` during a game asks to save and quit, quit without saving,
   or cancel — the moment a game in progress is preserved, since there is no
   background autosave to fall back on.
 - **Format**: a save is two lines of text — the starting position as FEN, then
-  the moves played from it in coordinate notation (`e2e4 e7e5 g1f3 ...`).
-  Roughly a hundred bytes for an average game, human-readable, and portable: it
+  the moves played from it in coordinate notation (`e2e4 e7e5 g1f3 ...`) —
+  followed by zero or more `key value` lines recording whatever else is known
+  about the game: its `result` if it has ended, its `id`, whether its `name`
+  was given or stands in for a date, and, for a timed game, its clock:
+
+  ```
+  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  e2e4 e7e5 g1f3 b8c6
+  id 5d54b0
+  name given
+  timecontrol 600000 2000
+  clocks 597400,600000 597400,594100 591200,594100 591200,588700
+  remaining 589050,588700
+  ```
+
+  `timecontrol` is the initial time and the increment in milliseconds;
+  `clocks` is what each side had left after every move played, white first,
+  one pair per move; `remaining` is what each side has left as the file is
+  written, which differs from the last `clocks` pair whenever a game is saved
+  partway through a turn. None of the three can be worked out from the other
+  two, which is why all three are there: the control is what makes a resumed
+  game the same game, the per-move readings are what let a replay show the
+  clock as it stood at any point, and the live reading is what lets a
+  mid-turn save resume with the time already spent. An untimed game records
+  none of them, so a file with no `timecontrol` is an untimed game — which is
+  what every save written before the format carried a clock is.
+
+  Roughly a hundred bytes for an average untimed game, about fourteen bytes a
+  move more for a timed one; human-readable, and portable: it
   does not depend on the compiler, the machine's byte order, or how any
   internal type is laid out in memory, so a file written by one build loads on
   any other, and a position pasted in from another chess program loads too.
-  Loading replays every move through the legal-move generator, so a
-  hand-edited or corrupted file is refused with an explanation — not
-  half-loaded, and never deleted — rather than producing a silently wrong game.
+  Loading replays every move through the legal-move generator and checks the
+  clock against it — one reading per move, nothing negative and nothing the
+  time control could not have produced — so a hand-edited or corrupted file is
+  refused with an explanation — not half-loaded, and never deleted — rather
+  than producing a silently wrong game.
 - **Settings**: `settings.txt` stores the glyph set and colour scheme chosen
   in the Settings screen. A write failure there does not block the change —
   it still applies for the session, and the game says it will not persist.

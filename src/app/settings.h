@@ -10,8 +10,8 @@
  * session, only from persisting.
  *
  * There is no setting for the turn handover: the board always waits for
- * Space between turns (see game.c), since that gesture is also the
- * "I'm ready" signal a future timed mode needs and must not be optional.
+ * Space between turns (see game.c), since that gesture is also the clock
+ * press in a timed game and must not be optional.
  */
 
 typedef enum { PALETTE_CLASSIC, PALETTE_OCEAN, PALETTE_COUNT } Palette_id_t;
