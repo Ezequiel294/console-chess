@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -188,6 +189,23 @@ int term_take_resize(void) {
   }
   g_resized = 0;
   return 1;
+}
+
+/* CLOCK_MONOTONIC rather than CLOCK_REALTIME: a player must not gain or lose
+ * time because NTP corrected the machine's clock or somebody changed the
+ * time zone. Available on both macOS and Linux, which is the supported set.
+ *
+ * A failed clock_gettime is reported as 0 rather than as an error the caller
+ * has to thread through every clock reading. The clock's arithmetic is
+ * defensive about a now that does not advance (see chessclock.c's
+ * elapsed_ms), so the worst a persistently failing call can do is stop time
+ * — never charge somebody for it. */
+uint64_t term_now_ms(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+    return 0;
+  }
+  return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000);
 }
 
 /* ---------------------------------------------------------------------------
